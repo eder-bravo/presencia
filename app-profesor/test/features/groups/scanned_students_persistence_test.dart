@@ -83,7 +83,8 @@ void main() {
           matriculas: any(named: 'matriculas'),
         ),
       ).thenAnswer(
-        (_) async => const Right<String, List<Map<String, dynamic>>>([]),
+        (_) async =>
+            const Left<String, List<Map<String, dynamic>>>('Sin conexión'),
       );
 
       const students = [

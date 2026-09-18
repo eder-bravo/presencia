@@ -159,20 +159,30 @@ void main() {
     );
 
     expect(tester.getSize(find.byType(IndexedStack)).height, greaterThan(300));
-    expect(find.text('Hola, Alumno'), findsOneWidget);
+    expect(find.text('HOLA, ALUMNO'), findsOneWidget);
     expect(find.text('Tu día'), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).bottomNavigationBar,
-      isNull,
+      isNotNull,
     );
 
-    await tester.tap(find.text('Ver horario completo'));
+    expect(find.text('Tus clases'), findsNothing);
+    expect(find.text('Ver semana'), findsNothing);
+    expect(find.text('Tu día:'), findsOneWidget);
+
+    await tester.tap(find.text('Horario'));
     await tester.pump();
     expect(find.text('Mi horario'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Volver al inicio'));
     await tester.pump();
-    expect(find.text('Hola, Alumno'), findsOneWidget);
+    expect(find.text('HOLA, ALUMNO'), findsOneWidget);
+
+    await tester.tap(find.text('Historial'));
+    await tester.pump();
+    expect(find.text('Tus asistencias aparecerán aquí'), findsOneWidget);
+    await tester.tap(find.text('Tu día'));
+    await tester.pump();
 
     await tester.tap(find.byTooltip('Abrir perfil'));
     await tester.pump();
@@ -253,16 +263,37 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Ver horario completo'));
+    final registeredButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Asistencia registrada'),
+    );
+    expect(registeredButton.onPressed, isNull);
+
+    await tester.tap(find.text('Horario'));
     await tester.pumpAndSettle();
 
     expect(find.text('Mi horario'), findsOneWidget);
-    expect(find.textContaining('Semana '), findsOneWidget);
+    expect(find.textContaining('SEMANA '), findsOneWidget);
     expect(find.byKey(const Key('full-schedule-day-selector')), findsOneWidget);
-    expect(find.text('Clases de hoy'), findsOneWidget);
-    expect(find.text('00:00 – 23:59'), findsOneWidget);
+    expect(find.byKey(const Key('full-schedule-scroll')), findsOneWidget);
+    expect(
+      find.byKey(const Key('full-schedule-section-title')),
+      findsOneWidget,
+    );
+    expect(find.text('00:00–23:59'), findsWidgets);
     expect(find.byKey(const ValueKey('full-schedule-card-0')), findsOneWidget);
     expect(find.text('Asistencia registrada'), findsOneWidget);
+    final registeredCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('full-schedule-card-0')),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    expect(
+      (registeredCard.decoration! as BoxDecoration).color,
+      AppPalette.light.successSurface,
+    );
     expect(
       tester
           .widget<ColoredBox>(find.byKey(const Key('full-schedule-background')))
@@ -272,7 +303,289 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('attendance keeps the previous class above the selected class', (
+  testWidgets('today shows free hours, classrooms and attendance states', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final weekday = DateTime.now().weekday;
+    final storage = _ScheduleStorage([
+      StudentScheduleEntry(
+        externalGroupId: 'early',
+        subject: 'Materia temprana',
+        classroom: 'Aula 101',
+        slots: [
+          StudentScheduleSlot(
+            weekday: weekday,
+            raw: '00:00 - 00:01',
+            startTime: '00:00',
+            endTime: '00:01',
+          ),
+        ],
+      ),
+      StudentScheduleEntry(
+        externalGroupId: 'late',
+        subject: 'Materia nocturna',
+        classroom: 'Aula 102',
+        slots: [
+          StudentScheduleSlot(
+            weekday: weekday,
+            raw: '00:31 - 23:59',
+            startTime: '00:31',
+            endTime: '23:59',
+          ),
+        ],
+      ),
+    ]);
+    final advertiser = BleAdvertiserService();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: HomeScreen(
+          storage: storage,
+          bleService: advertiser,
+          attendanceSession: AttendanceSessionService(
+            storage: storage,
+            advertiser: advertiser,
+          ),
+          deviceBindingService: StudentDeviceBindingService(),
+          profile: const StudentAcademicProfile(
+            matricula: '123456',
+            institutionalEmail: 'alumno@alumnos.uat.edu.mx',
+            displayName: 'Alumno Prueba',
+          ),
+          initialUatSessionId: null,
+          demoMode: false,
+          themeMode: ThemeMode.light,
+          onThemeModeChanged: (_) {},
+          onLogout: () async {},
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('attendance-class-1')),
+    );
+    await tester.tap(find.byKey(const ValueKey('attendance-class-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Hora libre'), findsNWidgets(2));
+    expect(find.text('00:01–00:31'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Hora libre'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('attendance-class-2')),
+    );
+    await tester.tap(find.byKey(const ValueKey('attendance-class-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Aula 102'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Registrar asistencia'),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('attendance-class-1'))).height,
+      tester.getSize(find.byKey(const ValueKey('attendance-class-2'))).height,
+    );
+    final currentCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('attendance-class-2')),
+            matching: find.byKey(const Key('attendance-card-surface')),
+          )
+          .first,
+    );
+    expect(
+      (currentCard.decoration! as BoxDecoration).color,
+      AppPalette.light.surface,
+    );
+
+    await tester.drag(
+      find.byKey(const Key('attendance-class-list')),
+      const Offset(0, 360),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      (tester
+                  .widget<AnimatedContainer>(
+                    find.byKey(const ValueKey('attendance-selection-0')),
+                  )
+                  .decoration!
+              as BoxDecoration)
+          .color,
+      AppPalette.light.accent,
+    );
+    final missedCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('attendance-class-0')),
+            matching: find.byKey(const Key('attendance-card-surface')),
+          )
+          .first,
+    );
+    expect(
+      (missedCard.decoration! as BoxDecoration).color,
+      AppPalette.light.warningSurface,
+    );
+
+    await tester.tap(find.text('Horario'));
+    await tester.pumpAndSettle();
+    expect(find.text('00:01–00:31 · Hora libre'), findsOneWidget);
+    expect(find.text('Aula 102'), findsOneWidget);
+    final missedScheduleCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('full-schedule-card-0')),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    final currentScheduleCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('full-schedule-card-2')),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    expect(
+      (missedScheduleCard.decoration! as BoxDecoration).color,
+      AppPalette.light.warningSurface,
+    );
+    expect(
+      (currentScheduleCard.decoration! as BoxDecoration).color,
+      AppPalette.light.surface,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('schedule header and classes move in one vertical scroll', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final weekday = DateTime.now().weekday;
+    final storage = _ScheduleStorage([
+      for (var index = 0; index < 5; index++)
+        StudentScheduleEntry(
+          externalGroupId: 'group-$index',
+          subject: 'Materia ${index + 1}',
+          classroom: 'Aula ${index + 1}',
+          slots: [
+            StudentScheduleSlot(
+              weekday: weekday,
+              raw:
+                  '${(8 + index * 2).toString().padLeft(2, '0')}:00 - ${(9 + index * 2).toString().padLeft(2, '0')}:00',
+              startTime: '${(8 + index * 2).toString().padLeft(2, '0')}:00',
+              endTime: '${(9 + index * 2).toString().padLeft(2, '0')}:00',
+            ),
+          ],
+        ),
+    ]);
+    final advertiser = BleAdvertiserService();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: HomeScreen(
+          storage: storage,
+          bleService: advertiser,
+          attendanceSession: AttendanceSessionService(
+            storage: storage,
+            advertiser: advertiser,
+          ),
+          deviceBindingService: StudentDeviceBindingService(),
+          profile: const StudentAcademicProfile(
+            matricula: '123456',
+            institutionalEmail: 'alumno@alumnos.uat.edu.mx',
+            displayName: 'Alumno Prueba',
+          ),
+          initialUatSessionId: null,
+          demoMode: false,
+          themeMode: ThemeMode.light,
+          onThemeModeChanged: (_) {},
+          onLogout: () async {},
+        ),
+      ),
+    );
+    await tester.tap(find.text('Horario'));
+    await tester.pumpAndSettle();
+    expect(find.text('Mi horario'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('full-schedule-scroll')),
+      const Offset(0, -350),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Mi horario'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dark theme colors the home, schedule and history surfaces', (
+    WidgetTester tester,
+  ) async {
+    final storage = _EmptyStorage();
+    final advertiser = BleAdvertiserService();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        darkTheme: buildAppTheme(Brightness.dark),
+        themeMode: ThemeMode.dark,
+        home: HomeScreen(
+          storage: storage,
+          bleService: advertiser,
+          attendanceSession: AttendanceSessionService(
+            storage: storage,
+            advertiser: advertiser,
+          ),
+          deviceBindingService: StudentDeviceBindingService(),
+          profile: const StudentAcademicProfile(
+            matricula: '123456',
+            institutionalEmail: 'alumno@alumnos.uat.edu.mx',
+            displayName: 'Alumno Prueba',
+          ),
+          initialUatSessionId: null,
+          demoMode: false,
+          themeMode: ThemeMode.dark,
+          onThemeModeChanged: (_) {},
+          onLogout: () async {},
+        ),
+      ),
+    );
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      AppPalette.dark.header,
+    );
+    await tester.tap(find.text('Horario'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<ColoredBox>(find.byKey(const Key('full-schedule-background')))
+          .color,
+      AppPalette.dark.background,
+    );
+    await tester.tap(find.text('Historial'));
+    await tester.pump();
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      AppPalette.dark.background,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('today snaps equal cards with a small selection marker', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(390, 780);
@@ -282,7 +595,7 @@ void main() {
 
     final weekday = DateTime.now().weekday;
     final storage = _ScheduleStorage([
-      for (var index = 0; index < 3; index++)
+      for (var index = 0; index < 5; index++)
         StudentScheduleEntry(
           externalGroupId: 'today-$index',
           subject: 'Materia ${index + 1}',
@@ -320,43 +633,52 @@ void main() {
     );
     await tester.pump();
 
-    final carousel = find.byKey(const Key('attendance-class-carousel'));
-    expect(carousel, findsOneWidget);
-    expect(tester.widget<ListView>(carousel).scrollDirection, Axis.vertical);
-    expect(
-      find.byKey(const ValueKey('class-indicator-0-active')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const ValueKey('attendance-class-1')));
+    final list = find.byKey(const Key('attendance-class-list'));
+    expect(list, findsOneWidget);
+    expect(tester.widget<ListView>(list).scrollDirection, Axis.vertical);
+    expect(find.byType(PageView), findsNothing);
+
+    final first = find.byKey(const ValueKey('attendance-class-0'));
+    final second = find.byKey(const ValueKey('attendance-class-1'));
+    final third = find.byKey(const ValueKey('attendance-class-2'));
+    expect(tester.getSize(first).height, 158);
+    expect(tester.getSize(second).height, 158);
+
+    await tester.tap(second);
     await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('class-indicator-1-active')),
-      findsOneWidget,
+    expect(tester.getSize(third).height, 158);
+    final selectedMarker = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('attendance-selection-1')),
     );
-    final previousCardTop = tester
-        .getTopLeft(find.byKey(const ValueKey('attendance-class-0')))
-        .dy;
-    final selectedCardTop = tester
-        .getTopLeft(find.byKey(const ValueKey('attendance-class-1')))
-        .dy;
-    final carouselTop = tester.getTopLeft(carousel).dy;
-    final previousCardBottom = tester
-        .getBottomRight(find.byKey(const ValueKey('attendance-class-0')))
-        .dy;
-    expect(selectedCardTop - carouselTop, lessThan(40));
-    expect(previousCardTop, lessThan(carouselTop));
-    expect(previousCardBottom, greaterThan(carouselTop));
-    expect(previousCardTop, lessThan(selectedCardTop));
-    expect(previousCardBottom, lessThanOrEqualTo(selectedCardTop + 10));
+    final otherMarker = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('attendance-selection-0')),
+    );
+    expect(
+      (selectedMarker.decoration! as BoxDecoration).color,
+      AppPalette.light.accent,
+    );
+    expect(
+      (otherMarker.decoration! as BoxDecoration).color,
+      Colors.transparent,
+    );
+    expect(tester.getSize(second).height, tester.getSize(first).height);
 
-    await tester.drag(carousel, const Offset(0, -90));
+    final secondTop = tester.getTopLeft(second).dy;
+    await tester.drag(list, const Offset(0, -120));
     await tester.pumpAndSettle();
-
+    expect(tester.getTopLeft(second).dy, lessThan(secondTop));
+    expect(tester.widget<ListView>(list).controller!.offset, closeTo(340, 1));
     expect(
-      find.byKey(const ValueKey('class-indicator-2-active')),
-      findsOneWidget,
+      (tester
+                  .widget<AnimatedContainer>(
+                    find.byKey(const ValueKey('attendance-selection-2')),
+                  )
+                  .decoration!
+              as BoxDecoration)
+          .color,
+      AppPalette.light.accent,
     );
+    expect(tester.getSize(second).height, 158);
     expect(tester.takeException(), isNull);
   });
 

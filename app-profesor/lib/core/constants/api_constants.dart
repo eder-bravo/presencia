@@ -92,6 +92,10 @@ class ApiConstants {
     'PRESENCIA_API_TIMEOUT',
     defaultValue: timeoutDuration,
   );
+  static const int studentBindingsRefreshSeconds = int.fromEnvironment(
+    'STUDENT_BINDINGS_REFRESH_SECONDS',
+    defaultValue: 30,
+  );
   static const String appLogIngestionKey = String.fromEnvironment(
     'PRESENCIA_LOG_INGESTION_KEY',
     defaultValue: 'development-app-log-ingestion-key-change-me',

@@ -23,6 +23,7 @@ class AuthStorageService {
   static const String _secureUatPasswordKey = 'professor_uat_password';
   static const String _profesorKey = 'profesor_data';
   static const String _gruposKey = 'grupos_data';
+  static const String _gruposAcademicCycleKey = 'grupos_academic_cycle_id';
   static const String _syncInProgressKey = 'sync_in_progress';
   static const String _legacyPasswordKey = 'encrypted_password';
   static const String _beaconsKey = 'beacons_data';
@@ -116,10 +117,13 @@ class AuthStorageService {
     }
   }
 
-  Future<void> saveGrupos(List<Grupo> grupos) async {
+  Future<void> saveGrupos(List<Grupo> grupos, {int? academicCycleId}) async {
     try {
       final gruposJson = jsonEncode(grupos.map((g) => g.toJson()).toList());
-      await _box?.put(_gruposKey, gruposJson);
+      await _box?.putAll({
+        _gruposKey: gruposJson,
+        _gruposAcademicCycleKey: academicCycleId,
+      });
       Logger.info('${grupos.length} grupos guardados correctamente');
     } catch (e, stackTrace) {
       Logger.error('Error al guardar grupos', e, stackTrace);
@@ -146,12 +150,14 @@ class AuthStorageService {
 
   Future<void> clearGrupos() async {
     try {
-      await _box?.delete(_gruposKey);
+      await _box?.deleteAll([_gruposKey, _gruposAcademicCycleKey]);
       Logger.info('Grupos eliminados del storage');
     } catch (e, stackTrace) {
       Logger.error('Error al limpiar grupos', e, stackTrace);
     }
   }
+
+  int? getGruposAcademicCycleId() => _box?.get(_gruposAcademicCycleKey) as int?;
 
   Future<void> saveSession({
     required String token,
@@ -202,6 +208,7 @@ class AuthStorageService {
         _legacyMainBackendTokenKey,
         _profesorKey,
         _gruposKey,
+        _gruposAcademicCycleKey,
         _syncInProgressKey,
         _legacyPasswordKey,
         _beaconsKey,
@@ -409,13 +416,23 @@ class AuthStorageService {
 
   /// Incorpora los vínculos GATT confirmados por el servidor.
   Future<void> cacheResolvedStudentDeviceBindings(
-    List<Map<String, dynamic>> resolvedBindings,
-  ) async {
+    List<Map<String, dynamic>> resolvedBindings, {
+    Iterable<String>? requestedMatriculas,
+  }) async {
     final bindings = _studentBindingsByMatricula();
+    // Una respuesta completa reemplaza solo los vínculos del grupo consultado.
+    // Los errores de red nunca deben pasar por aquí ni vaciar la copia local.
+    final requested = requestedMatriculas
+        ?.map((value) => value.trim().toUpperCase())
+        .toSet();
+    if (requested != null) {
+      bindings.removeWhere((matricula, _) => requested.contains(matricula));
+    }
     for (final raw in resolvedBindings) {
       final matricula = raw['matricula']?.toString().trim().toUpperCase() ?? '';
       final uuid = raw['attendanceUuid']?.toString().trim().toLowerCase() ?? '';
       if (matricula.isEmpty || uuid.isEmpty) continue;
+      if (requested != null && !requested.contains(matricula)) continue;
 
       bindings[matricula] = {
         ...raw,

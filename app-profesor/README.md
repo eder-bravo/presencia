@@ -16,6 +16,7 @@ Esta aplicación permite a los profesores universitarios:
 
 - **Detección de Beacons**: Utiliza Bluetooth Low Energy (BLE) para detectar automáticamente cuando el profesor está en el aula
 - **Gestión Offline**: Funciona sin conexión a internet, sincronizando cuando esté disponible
+- **Alumnos vinculados al día**: Después de abrir Alumnos, el grupo consulta sus vínculos cada 30 segundos mientras la app está en primer plano, incluso con el escáner abierto. Las nuevas vinculaciones se incorporan sin reiniciar el escaneo ni borrar asistencias. Si no responde el servidor, se conserva la última lista y se reintenta automáticamente; al volver a la app se consulta de inmediato. El intervalo se puede cambiar al compilar con `--dart-define=STUDENT_BINDINGS_REFRESH_SECONDS=30` (valores positivos).
 - **Interfaz Intuitiva**: Diseño simple y funcional para uso académico
 - **Reportes Detallados**: Generación de estadísticas de asistencia por grupo, estudiante y período
 

@@ -85,6 +85,28 @@ class StudentAttendanceBleService {
   Future<bool> startScanning({
     required Map<String, StudentAttendanceGattConfirmation> confirmationsByUuid,
   }) async {
+    final confirmationPayloads = _confirmationPayloads(confirmationsByUuid);
+    if (confirmationPayloads.isEmpty) return false;
+
+    final result = await _method.invokeMethod<bool>('startScanning', {
+      'confirmationPayloads': confirmationPayloads,
+    });
+    return result == true;
+  }
+
+  /// Reemplaza los objetivos sin reiniciar conexiones ni confirmaciones BLE.
+  Future<bool> updateBindings({
+    required Map<String, StudentAttendanceGattConfirmation> confirmationsByUuid,
+  }) async {
+    final result = await _method.invokeMethod<bool>('updateBindings', {
+      'confirmationPayloads': _confirmationPayloads(confirmationsByUuid),
+    });
+    return result == true;
+  }
+
+  Map<String, String> _confirmationPayloads(
+    Map<String, StudentAttendanceGattConfirmation> confirmationsByUuid,
+  ) {
     final confirmationPayloads = <String, String>{};
     for (final entry in confirmationsByUuid.entries) {
       final uuid = _normalizeUuid(entry.key);
@@ -93,12 +115,7 @@ class StudentAttendanceBleService {
       if (uuid.isEmpty || matricula.isEmpty || materia.isEmpty) continue;
       confirmationPayloads[uuid] = entry.value.toGattPayload();
     }
-    if (confirmationPayloads.isEmpty) return false;
-
-    final result = await _method.invokeMethod<bool>('startScanning', {
-      'confirmationPayloads': confirmationPayloads,
-    });
-    return result == true;
+    return confirmationPayloads;
   }
 
   /// Allows the native layer to send feedback to the student only after the

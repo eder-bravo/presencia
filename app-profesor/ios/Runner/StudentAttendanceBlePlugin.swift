@@ -53,7 +53,7 @@ final class StudentAttendanceBlePlugin: NSObject, FlutterStreamHandler, CBCentra
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
-    case "startScanning":
+    case "startScanning", "updateBindings":
       guard let args = call.arguments as? [String: Any],
             let rawPayloads = args["confirmationPayloads"] as? [String: Any]
       else {
@@ -69,11 +69,22 @@ final class StudentAttendanceBlePlugin: NSObject, FlutterStreamHandler, CBCentra
           values[normalized] = data
         }
       }
-      guard !payloads.isEmpty else {
+      guard !payloads.isEmpty || call.method == "updateBindings" else {
         result(FlutterError(code: "INVALID_ARGUMENT", message: "Las confirmaciones por matricula son invalidas", details: nil))
         return
       }
-      startScanning(confirmationPayloads: payloads, result: result)
+      if call.method == "updateBindings" {
+        guard centralManager?.isScanning == true else {
+          result(false)
+          return
+        }
+        // Keep the active connections and already confirmed students intact.
+        targetUuids = Set(payloads.keys)
+        confirmationPayloads = payloads
+        result(true)
+      } else {
+        startScanning(confirmationPayloads: payloads, result: result)
+      }
 
     case "stopScanning":
       stopScanning()

@@ -1,4 +1,4 @@
-package com.example.appprofesoresuniversidad
+package com.presencia.app_profesor
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -82,6 +82,7 @@ class StudentAttendanceBlePlugin(
     }
     private var scanAttempt = 0
     private var scanGeneration = 0
+    private var scanPausedForCompletedRoster = false
     @Volatile
     private var isActivityInForeground = true
     @Volatile
@@ -153,7 +154,7 @@ class StudentAttendanceBlePlugin(
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "startScanning" -> {
+            "startScanning", "updateBindings" -> {
                 val rawPayloads = call.argument<Map<*, *>>("confirmationPayloads")
                 val payloads = rawPayloads
                     ?.entries
@@ -165,13 +166,17 @@ class StudentAttendanceBlePlugin(
                     }
                     ?.toMap()
                     .orEmpty()
-                if (payloads.isEmpty()) {
+                if (rawPayloads == null || (payloads.isEmpty() && call.method == "startScanning")) {
                     result.error("INVALID_ARGUMENT", "Se requieren confirmaciones por matricula", null)
                     return
                 }
                 try {
-                    startScanning(payloads)
-                    result.success(true)
+                    if (call.method == "updateBindings") {
+                        result.success(updateBindings(payloads))
+                    } else {
+                        startScanning(payloads)
+                        result.success(true)
+                    }
                 } catch (error: SecurityException) {
                     Log.e(TAG, "Missing permission for student BLE scan", error)
                     result.error("PERMISSION_DENIED", error.message, null)
@@ -207,6 +212,31 @@ class StudentAttendanceBlePlugin(
             "openLocationSettings" -> result.success(openSettings(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
             else -> result.notImplemented()
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun updateBindings(payloads: Map<String, String>): Boolean {
+        if (!isActivityInForeground || scanAttempt == 0) return false
+        val previousPayloads = confirmationPayloads
+        val previousTargets = targetUuids
+        confirmationPayloads = payloads
+        targetUuids = payloads.keys
+        try {
+            // A completed roster pauses only the radio. New students can resume
+            // it without clearing handled UUIDs or closing pending GATT writes.
+            if (scanPausedForCompletedRoster && !handledUuids.containsAll(targetUuids)) {
+                ensureRuntimePermissions()
+                val scanner = readyBluetoothLeScanner()
+                    ?: throw IllegalStateException("Bluetooth no disponible o apagado")
+                startBleScan(scanner)
+                scanPausedForCompletedRoster = false
+            }
+        } catch (error: Exception) {
+            confirmationPayloads = previousPayloads
+            targetUuids = previousTargets
+            throw error
+        }
+        return true
     }
 
     @SuppressLint("MissingPermission")
@@ -261,6 +291,7 @@ class StudentAttendanceBlePlugin(
     private fun stopScanning() {
         scanGeneration++
         scanAttempt = 0
+        scanPausedForCompletedRoster = false
         stopCurrentScanAndConnections()
     }
 
@@ -678,6 +709,7 @@ class StudentAttendanceBlePlugin(
     @SuppressLint("MissingPermission")
     private fun stopBleScanOnly() {
         if (!isScanning) return
+        scanPausedForCompletedRoster = true
         isScanning = false
         mainHandler.removeCallbacks(scanTimeout)
         try {

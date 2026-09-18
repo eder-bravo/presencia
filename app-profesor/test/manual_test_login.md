@@ -60,7 +60,7 @@ correos personales ni contraseñas reales en este archivo o en los logs.
 ```bash
 # En el emulador/dispositivo, limpiar datos de la app
 # Android
-adb shell pm clear com.uat.appprofesoresuniversidad
+adb shell pm clear com.presencia.app_profesor
 
 # iOS
 # Settings > General > iPhone Storage > App > Delete App

@@ -98,6 +98,42 @@ void main() {
   });
 
   test(
+    'updates and clears scan targets without restarting the scanner',
+    () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return true;
+          });
+      final service = StudentAttendanceBleService();
+      expect(
+        await service.updateBindings(
+          confirmationsByUuid: {
+            'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE':
+                StudentAttendanceGattConfirmation(
+                  matricula: '1002',
+                  materia: 'Redes',
+                  dia: DateTime(2026, 9, 18),
+                ),
+          },
+        ),
+        isTrue,
+      );
+      expect(calls.single.method, 'updateBindings');
+      final args = calls.single.arguments as Map;
+      final payloads = args['confirmationPayloads'] as Map;
+      expect(
+        jsonDecode(payloads['aaaaaaaabbbb4ccc8dddeeeeeeeeeeee'] as String),
+        {'id': '1002', 'materia': 'Redes', 'dia': '2026-09-18'},
+      );
+      expect(await service.updateBindings(confirmationsByUuid: {}), isTrue);
+      expect(calls.last.arguments, {'confirmationPayloads': {}});
+      expect(calls.map((call) => call.method), everyElement('updateBindings'));
+    },
+  );
+
+  test(
     'confirms a UUID only through an explicit teacher-app acknowledgement',
     () async {
       MethodCall? capturedCall;

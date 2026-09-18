@@ -951,7 +951,7 @@ class _GruposPageState extends ConsumerState<GruposPage>
             Text(
               groupsNotice == null
                   ? 'No tienes clases asignadas'
-                  : 'Listas aún no disponibles',
+                  : 'No hay clases para mostrar',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,

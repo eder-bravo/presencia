@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'config/app_environment.dart';
 import 'models/student_academic_profile.dart';
 import 'services/local_storage_service.dart';
@@ -223,7 +224,32 @@ class PresenciaAlumnoApp extends StatefulWidget {
 }
 
 class _PresenciaAlumnoAppState extends State<PresenciaAlumnoApp> {
+  static const _themePreferenceKey = 'student_theme_mode';
   ThemeMode _themeMode = ThemeMode.system;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreThemeMode();
+  }
+
+  Future<void> _restoreThemeMode() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _themeMode = switch (preferences.getString(_themePreferenceKey)) {
+        'dark' => ThemeMode.dark,
+        'light' => ThemeMode.light,
+        _ => ThemeMode.system,
+      };
+    });
+  }
+
+  Future<void> _setThemeMode(ThemeMode value) async {
+    setState(() => _themeMode = value);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_themePreferenceKey, value.name);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +264,7 @@ class _PresenciaAlumnoAppState extends State<PresenciaAlumnoApp> {
         bleService: widget.bleService,
         attendanceSession: widget.attendanceSession,
         deviceBindingService: widget.deviceBindingService,
-        onThemeModeChanged: (value) => setState(() => _themeMode = value),
+        onThemeModeChanged: _setThemeMode,
         themeMode: _themeMode,
       ),
     );

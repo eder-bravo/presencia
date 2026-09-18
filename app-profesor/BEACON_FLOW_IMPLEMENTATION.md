@@ -18,7 +18,7 @@ del profesor. Las asistencias locales existentes se conservan durante ese proces
 ### Android
 
 - Se agrego integracion nativa con Android Beacon Library/AltBeacon.
-- Archivo principal: `android/app/src/main/kotlin/com/example/appprofesoresuniversidad/AltBeaconPlugin.kt`
+- Archivo principal: `android/app/src/main/kotlin/com/presencia/app_profesor/AltBeaconPlugin.kt`
 - Canales usados:
   - MethodChannel: `com.presencia/altbeacon`
   - EventChannel: `com.presencia/altbeacon_events`
@@ -79,7 +79,7 @@ Archivos principales:
 
 Se removio el stack BLE legacy:
 
-- `android/app/src/main/kotlin/com/example/appprofesoresuniversidad/NativeBlePlugin.kt`
+- `android/app/src/main/kotlin/com/presencia/app_profesor/NativeBlePlugin.kt`
 - `ios/Runner/NativeBlePlugin.swift`
 - `lib/services/native_ble_channel.dart`
 - `lib/services/bluetooth_service.dart`

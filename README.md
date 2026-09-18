@@ -18,6 +18,7 @@ presencia/
 
 ## Arquitectura
 
+- [Descripción general del proyecto](docs/PROYECTO.md)
 - [Plan de migración a microservicios](docs/architecture/PLAN_MIGRACION_MICROSERVICIOS.md)
 - [Auditoría de finalización y evidencia](docs/architecture/AUDITORIA_FINALIZACION_2026-08-03.md)
 - [Modo demo aislado](docs/operations/MODO_DEMO.md)

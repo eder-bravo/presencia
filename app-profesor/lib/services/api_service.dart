@@ -116,12 +116,16 @@ class ProfesorGroupsData {
   final List<Map<String, dynamic>> beacons;
   final AcademicCycleContext cycle;
   final int unavailableRosterCount;
+  final Set<String> unavailableRosterGroupIds;
+  final Set<String> failedRosterGroupIds;
 
   const ProfesorGroupsData({
     required this.grupos,
     required this.beacons,
     required this.cycle,
     this.unavailableRosterCount = 0,
+    this.unavailableRosterGroupIds = const {},
+    this.failedRosterGroupIds = const {},
   });
 
   bool get classesPending => grupos.isEmpty;
@@ -403,12 +407,20 @@ class ApiService {
 
       final grupos = <Grupo>[];
       var unavailableRosterCount = 0;
+      final unavailableRosterGroupIds = <String>{};
+      final failedRosterGroupIds = <String>{};
       for (final grupoPortal in gruposPortal) {
         final roster = await _loadAlumnosForGroup(
           sessionId: sessionId,
           idGrupo: grupoPortal.idGrupo,
         );
-        if (!roster.available) unavailableRosterCount += 1;
+        if (!roster.available) {
+          unavailableRosterCount += 1;
+          unavailableRosterGroupIds.add(grupoPortal.idGrupo.toString());
+        }
+        if (roster.failed) {
+          failedRosterGroupIds.add(grupoPortal.idGrupo.toString());
+        }
         grupos.add(
           grupoPortal.toGrupo(
             students: roster.students,
@@ -433,14 +445,18 @@ class ApiService {
       for (final sharedGroup in sharedGroups) {
         final idGrupo = int.tryParse(sharedGroup.id);
         final roster = sharedGroup.students.isNotEmpty
-            ? (students: sharedGroup.students, available: true)
+            ? (students: sharedGroup.students, available: true, failed: false)
             : idGrupo == null
-            ? (students: const <Alumno>[], available: false)
+            ? (students: const <Alumno>[], available: false, failed: false)
             : await _loadAlumnosForGroup(
                 sessionId: sessionId,
                 idGrupo: idGrupo,
               );
-        if (!roster.available) unavailableRosterCount += 1;
+        if (!roster.available) {
+          unavailableRosterCount += 1;
+          unavailableRosterGroupIds.add(sharedGroup.id);
+        }
+        if (roster.failed) failedRosterGroupIds.add(sharedGroup.id);
         grupos.add(
           sharedGroup.copyWith(
             students: roster.students,
@@ -465,6 +481,8 @@ class ApiService {
           beacons: debugData.beacons,
           cycle: cycle,
           unavailableRosterCount: unavailableRosterCount,
+          unavailableRosterGroupIds: unavailableRosterGroupIds,
+          failedRosterGroupIds: failedRosterGroupIds,
         ),
       );
     } on DioException catch (e) {
@@ -630,7 +648,8 @@ class ApiService {
     return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 
-  Future<({List<Alumno> students, bool available})> _loadAlumnosForGroup({
+  Future<({List<Alumno> students, bool available, bool failed})>
+  _loadAlumnosForGroup({
     required String sessionId,
     required int idGrupo,
   }) async {
@@ -667,6 +686,7 @@ class ApiService {
                 .map((alumno) => alumno.toAlumno())
                 .toList(),
             available: true,
+            failed: false,
           );
         }
       }
@@ -676,9 +696,10 @@ class ApiService {
         e,
         stackTrace,
       );
+      return (students: const <Alumno>[], available: false, failed: true);
     }
 
-    return (students: const <Alumno>[], available: false);
+    return (students: const <Alumno>[], available: false, failed: false);
   }
 
   /// Encola una nueva cosecha academica usando la sesion UAT vigente.

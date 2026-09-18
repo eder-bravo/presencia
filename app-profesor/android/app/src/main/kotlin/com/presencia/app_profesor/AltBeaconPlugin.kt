@@ -1,4 +1,4 @@
-package com.example.appprofesoresuniversidad
+package com.presencia.app_profesor
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter

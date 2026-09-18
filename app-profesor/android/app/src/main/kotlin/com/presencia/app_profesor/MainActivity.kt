@@ -1,4 +1,4 @@
-package com.example.appprofesoresuniversidad
+package com.presencia.app_profesor
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

@@ -2,59 +2,99 @@ import 'package:flutter/material.dart';
 
 import '../models/attendance_history_entry.dart';
 import '../services/local_storage_service.dart';
+import '../theme/app_theme.dart';
 import '../utils/subject_name.dart';
-
-const _background = Color(0xFF0B0F14);
-const _panel = Color(0xFF111923);
-const _line = Color(0xFF223040);
-const _muted = Color(0xFF8F9BA8);
-const _accent = Color(0xFF62D6A2);
 
 class HistoryScreen extends StatefulWidget {
   final LocalStorageService storage;
+  final bool embedded;
 
-  const HistoryScreen({super.key, required this.storage});
+  const HistoryScreen({
+    super.key,
+    required this.storage,
+    this.embedded = false,
+  });
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  Future<void> _refresh() async {
-    setState(() {});
-  }
+  Future<void> _refresh() async => setState(() {});
 
   @override
   Widget build(BuildContext context) {
     final entries = widget.storage.attendanceHistory;
-
-    return Scaffold(
-      backgroundColor: _background,
-      appBar: AppBar(
-        backgroundColor: _background,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: const Text(
-          'Historial',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-      ),
-      body: entries.isEmpty
-          ? const _EmptyHistory()
-          : RefreshIndicator(
-              color: _accent,
-              backgroundColor: _panel,
-              onRefresh: _refresh,
-              child: ListView.separated(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-                itemCount: entries.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (_, index) =>
-                    _HistoryEntryCard(entry: entries[index]),
+    final palette = AppPalette.of(context);
+    final content = ColoredBox(
+      color: palette.background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'TU VIDA EN EL CAMPUS',
+              style: TextStyle(
+                color: palette.muted,
+                fontSize: 10,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Historial',
+              style: TextStyle(
+                color: palette.ink,
+                fontSize: 26,
+                height: 1.23,
+                letterSpacing: -.7,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              entries.isEmpty
+                  ? 'Tus asistencias aparecerán aquí'
+                  : '${entries.length} ${entries.length == 1 ? 'asistencia registrada' : 'asistencias registradas'}',
+              style: TextStyle(
+                color: palette.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: RefreshIndicator(
+                color: palette.accent,
+                onRefresh: _refresh,
+                child: ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 24),
+                  itemCount: entries.isEmpty ? 1 : entries.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (_, index) => entries.isEmpty
+                      ? const _EmptyHistory()
+                      : _HistoryEntryCard(entry: entries[index]),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (widget.embedded) return content;
+    return Scaffold(
+      backgroundColor: palette.background,
+      appBar: AppBar(
+        backgroundColor: palette.background,
+        foregroundColor: palette.ink,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+      ),
+      body: SafeArea(child: content),
     );
   }
 }
@@ -64,44 +104,45 @@ class _EmptyHistory extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: _panel,
-                shape: BoxShape.circle,
-                border: Border.all(color: _line),
-              ),
-              child: const Icon(Icons.history_rounded, color: _muted, size: 34),
+    final palette = AppPalette.of(context);
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: palette.successSurface,
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(height: 18),
-            const Text(
-              'Aún no hay pases de lista',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
+            child: Icon(
+              Icons.history_rounded,
+              color: palette.success,
+              size: 24,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Aquí verás tus asistencias confirmadas.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.56),
-                fontSize: 14,
-                height: 1.35,
-              ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Aún no hay pases de lista',
+            style: TextStyle(
+              color: palette.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Aquí verás tus asistencias confirmadas.',
+            style: TextStyle(color: palette.muted, fontSize: 14, height: 1.4),
+          ),
+        ],
       ),
     );
   }
@@ -114,25 +155,27 @@ class _HistoryEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _panel,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _line),
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: _accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(14),
+              color: palette.successSurface,
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.check_rounded, color: _accent, size: 28),
+            child: Icon(Icons.check_rounded, color: palette.success, size: 24),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,34 +186,43 @@ class _HistoryEntryCard extends StatelessWidget {
                     fallback: 'Pase de lista confirmado',
                   ),
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    color: palette.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Asistencia registrada',
+                  style: TextStyle(
+                    color: palette.success,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 if (groupDisplayName(entry.group) != null ||
                     entry.classroom != null) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     [
                       if (groupDisplayName(entry.group) != null)
                         'Grupo ${groupDisplayName(entry.group)}',
                       if (entry.classroom != null) 'Aula ${entry.classroom}',
                     ].join(' · '),
-                    style: const TextStyle(
-                      color: _accent,
+                    style: TextStyle(
+                      color: palette.muted,
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 Text(
                   _formatDateTime(entry.recordedAt),
-                  style: const TextStyle(
-                    color: _muted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                  style: TextStyle(
+                    color: palette.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],

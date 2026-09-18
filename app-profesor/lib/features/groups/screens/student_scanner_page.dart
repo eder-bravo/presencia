@@ -14,6 +14,7 @@ class StudentScannerPage extends StatefulWidget {
   final String subject;
   final String groupLabel;
   final int availableStudentCount;
+  final ValueListenable<int>? availableStudentCountListenable;
   final Future<bool> Function() onStart;
   final Future<void> Function() onStop;
 
@@ -26,6 +27,7 @@ class StudentScannerPage extends StatefulWidget {
     required this.subject,
     required this.groupLabel,
     required this.availableStudentCount,
+    this.availableStudentCountListenable,
     required this.onStart,
     required this.onStop,
   });
@@ -302,12 +304,17 @@ class _StudentScannerPageState extends State<StudentScannerPage>
       );
     }
 
-    return ValueListenableBuilder<List<String>>(
+    return AnimatedBuilder(
       key: const ValueKey('scanner-active'),
-      valueListenable: widget.detectedStudentKeys,
-      builder: (context, detectedKeys, _) {
-        final count = detectedKeys.toSet().length;
-        final available = widget.availableStudentCount;
+      animation: Listenable.merge([
+        widget.detectedStudentKeys,
+        widget.availableStudentCountListenable,
+      ]),
+      builder: (context, _) {
+        final count = widget.detectedStudentKeys.value.toSet().length;
+        final available =
+            widget.availableStudentCountListenable?.value ??
+            widget.availableStudentCount;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
@@ -330,7 +337,7 @@ class _StudentScannerPageState extends State<StudentScannerPage>
               ),
               const SizedBox(width: 8),
               Text(
-                available > 0
+                available > 0 && available >= count
                     ? '$count de $available detectados'
                     : '$count detectados',
                 style: const TextStyle(

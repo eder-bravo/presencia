@@ -93,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _profile = widget.profile;
     _studentAuth = widget.studentAuth ?? StudentAuthService();
     _schedule = widget.storage.studentSchedule;
+    _selectedClass = _preferredClassIndex(_schedule, DateTime.now());
     _pendingUatSessionId = widget.initialUatSessionId;
     _advertiserState = widget.bleService.currentState;
     _attendanceState = widget.attendanceSession.currentState;
@@ -202,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _schedule = result.schedule;
-        _selectedClass = 0;
+        _selectedClass = _preferredClassIndex(result.schedule, DateTime.now());
         _lastSuccessfulSync = result.syncedAt;
         if (result.profile != null) _profile = result.profile!;
       });
@@ -411,20 +412,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _openAttendanceSheet() async {
     HapticFeedback.mediumImpact();
-    final todayClasses = scheduleForWeekday(_schedule, DateTime.now().weekday);
-    final safeSelectedClass = todayClasses.isEmpty
+    final todayItems = _dayItems(_schedule, DateTime.now().weekday);
+    final safeSelectedClass = todayItems.isEmpty
         ? 0
-        : (_selectedClass.clamp(0, todayClasses.length - 1));
-    final currentOccurrence = todayClasses.isNotEmpty
-        ? todayClasses[safeSelectedClass]
+        : (_selectedClass.clamp(0, todayItems.length - 1));
+    final selectedItem = todayItems.isNotEmpty
+        ? todayItems[safeSelectedClass]
         : null;
+    if (selectedItem != null && _isFreeOccurrence(selectedItem)) return;
 
     await AttendanceBottomSheet.show(
       context,
       attendanceSession: widget.attendanceSession,
       bleService: widget.bleService,
       storage: widget.storage,
-      currentOccurrence: currentOccurrence,
+      currentOccurrence: selectedItem,
     );
   }
 
@@ -500,10 +502,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         confirmed: _confirmed,
         confirmedClassName: _confirmation?.materia ?? _confirmation?.className,
         hasError: _hasError,
+        attendanceHistory: widget.storage.attendanceHistory,
         onSelectClass: (index) => setState(() => _selectedClass = index),
         onRegister: _openAttendanceSheet,
-        onOpenSchedule: () => setState(() => _selectedTab = 1),
-        onOpenProfile: () => setState(() => _selectedTab = 2),
+        onOpenProfile: () => setState(() => _selectedTab = 3),
       ),
       _SchedulePage(
         schedule: _schedule,
@@ -513,6 +515,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onRetry: _syncAcademicInfo,
         onBack: () => setState(() => _selectedTab = 0),
       ),
+      HistoryScreen(storage: widget.storage, embedded: true),
       _ProfilePage(
         profile: _profile,
         themeMode: widget.themeMode,
@@ -528,7 +531,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     ];
     return Scaffold(
+      backgroundColor: _selectedTab == 0
+          ? AppPalette.of(context).header
+          : AppPalette.of(context).background,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             if (widget.demoMode)
@@ -560,6 +567,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
+      bottomNavigationBar: _selectedTab == 3
+          ? null
+          : ColoredBox(
+              color: AppPalette.of(context).surface,
+              child: SafeArea(
+                top: false,
+                child: _PresenciaBottomNav(
+                  selectedTab: _selectedTab,
+                  onSelect: (index) => setState(() => _selectedTab = index),
+                ),
+              ),
+            ),
     );
   }
 }
@@ -575,9 +594,9 @@ class _AttendancePage extends StatefulWidget {
     required this.confirmed,
     required this.confirmedClassName,
     required this.hasError,
+    required this.attendanceHistory,
     required this.onSelectClass,
     required this.onRegister,
-    required this.onOpenSchedule,
     required this.onOpenProfile,
   });
   final StudentAcademicProfile profile;
@@ -585,40 +604,87 @@ class _AttendancePage extends StatefulWidget {
   final List<StudentScheduleEntry> schedule;
   final bool scheduleLoading;
   final bool isActive, isChecking, confirmed, hasError;
+  final List<AttendanceHistoryEntry> attendanceHistory;
   final String? confirmedClassName;
   final ValueChanged<int> onSelectClass;
   final VoidCallback onRegister;
-  final VoidCallback onOpenSchedule;
   final VoidCallback onOpenProfile;
 
   @override
   State<_AttendancePage> createState() => _AttendancePageState();
 }
 
-class _AttendancePageState extends State<_AttendancePage> {
-  static const _navy = Color(0xFF003B5C);
-  static const _orange = Color(0xFFD65F05);
-  static const _lightBackground = Color(0xFFF7F8FA);
-  static const _carouselViewportFraction = .25;
-  static const _carouselPreviousCardPeek = 26.0;
+class _CardSnapPhysics extends ScrollPhysics {
+  const _CardSnapPhysics({required this.itemExtent, super.parent});
 
+  final double itemExtent;
+
+  @override
+  _CardSnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _CardSnapPhysics(itemExtent: itemExtent, parent: buildParent(ancestor));
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    if (position.outOfRange ||
+        position.maxScrollExtent <= position.minScrollExtent ||
+        (velocity <= 0 && position.pixels <= position.minScrollExtent) ||
+        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    final tolerance = toleranceFor(position);
+    var page = (position.pixels - position.minScrollExtent) / itemExtent;
+    if (velocity < -tolerance.velocity) {
+      page -= .5;
+    } else if (velocity > tolerance.velocity) {
+      page += .5;
+    }
+    final target = (position.minScrollExtent + page.round() * itemExtent).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((target - position.pixels).abs() <= tolerance.distance) return null;
+    return ScrollSpringSimulation(
+      spring,
+      position.pixels,
+      target,
+      velocity,
+      tolerance: tolerance,
+    );
+  }
+}
+
+class _AttendancePageState extends State<_AttendancePage> {
+  static const _cardHeight = 158.0;
+  static const _cardSpacing = 12.0;
   late final ScrollController _classScrollController;
-  double _carouselItemExtent = 0;
 
   @override
   void initState() {
     super.initState();
     _classScrollController = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelectedClass());
   }
 
   @override
   void didUpdateWidget(covariant _AttendancePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.schedule, widget.schedule)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _alignClass(widget.selectedClass, animated: false);
-      });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _revealSelectedClass(),
+      );
     }
+  }
+
+  void _revealSelectedClass() {
+    if (!mounted || !_classScrollController.hasClients) return;
+    final target = (widget.selectedClass * (_cardHeight + _cardSpacing)).clamp(
+      0.0,
+      _classScrollController.position.maxScrollExtent,
+    );
+    _classScrollController.jumpTo(target);
   }
 
   @override
@@ -633,64 +699,73 @@ class _AttendancePageState extends State<_AttendancePage> {
     widget.onSelectClass(index);
   }
 
-  void _moveToClass(int index) {
+  void _focusClass(int index) {
     _selectClass(index);
-    _alignClass(index);
+    if (!_classScrollController.hasClients) return;
+    final target = (index * (_cardHeight + _cardSpacing)).clamp(
+      0.0,
+      _classScrollController.position.maxScrollExtent,
+    );
+    unawaited(
+      _classScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      ),
+    );
   }
 
-  void _alignClass(int index, {bool animated = true}) {
-    if (!_classScrollController.hasClients || _carouselItemExtent <= 0) return;
-    final target =
-        (index * _carouselItemExtent -
-                (index > 0 ? _carouselPreviousCardPeek : 0))
-            .clamp(0.0, _classScrollController.position.maxScrollExtent);
-    if ((_classScrollController.offset - target).abs() < .5) return;
-    if (animated) {
-      unawaited(
-        _classScrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-        ),
-      );
-    } else {
-      _classScrollController.jumpTo(target);
-    }
-  }
-
-  bool _handleClassScrollEnd(
-    ScrollEndNotification notification,
-    int classCount,
-  ) {
-    if (classCount == 0 || _carouselItemExtent <= 0) return false;
-    final index =
-        ((_classScrollController.offset + _carouselPreviousCardPeek) /
-                _carouselItemExtent)
-            .round()
-            .clamp(0, classCount - 1);
-    _selectClass(index);
-    _alignClass(index);
-    return false;
+  void _selectSnappedClass(int count) {
+    if (!_classScrollController.hasClients || count == 0) return;
+    final index = (_classScrollController.offset / (_cardHeight + _cardSpacing))
+        .round()
+        .clamp(0, count - 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _selectClass(index);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = dark ? const Color(0xFF5DC2F0) : _navy;
     final now = DateTime.now();
-    final todayClasses = scheduleForWeekday(
-      widget.schedule,
-      DateTime.now().weekday,
-    );
-    final safeSelectedClass = todayClasses.isEmpty
+    final palette = AppPalette.of(context);
+    final todayItems = _dayItems(widget.schedule, now.weekday);
+    final todayClasses = todayItems
+        .where((occurrence) => !_isFreeOccurrence(occurrence))
+        .toList();
+    final selectedIndex = todayItems.isEmpty
         ? 0
-        : (widget.selectedClass.clamp(0, todayClasses.length - 1));
-    final effectiveSelectedClass = safeSelectedClass;
+        : widget.selectedClass.clamp(0, todayItems.length - 1);
+    final selectedOccurrence = todayItems.isEmpty
+        ? null
+        : todayItems[selectedIndex];
+    final selectedIsFree =
+        selectedOccurrence != null && _isFreeOccurrence(selectedOccurrence);
+    final selectedRegistered =
+        selectedOccurrence != null &&
+        !selectedIsFree &&
+        (widget.attendanceHistory.any(
+              (entry) => _attendanceMatches(entry, selectedOccurrence, now),
+            ) ||
+            (widget.confirmed &&
+                subjectDisplayName(
+                      widget.confirmedClassName,
+                      fallback: '',
+                    ).toLowerCase() ==
+                    subjectDisplayName(
+                      selectedOccurrence.entry.subject,
+                    ).toLowerCase()));
     final dayFinished =
         todayClasses.isNotEmpty &&
-        todayClasses.every((occurrence) => scheduleHasEnded(occurrence, now));
-    final buttonTitle = widget.confirmed
+        todayClasses.every((occurrence) => scheduleHasEnded(occurrence, now)) &&
+        todayClasses.any(
+          (occurrence) => !widget.attendanceHistory.any(
+            (entry) => _attendanceMatches(entry, occurrence, now),
+          ),
+        );
+    final buttonTitle = selectedIsFree
+        ? 'Hora libre'
+        : selectedRegistered
         ? 'Asistencia registrada'
         : widget.isActive || widget.isChecking
         ? 'Cancelando registro'
@@ -701,186 +776,239 @@ class _AttendancePageState extends State<_AttendancePage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxHeight < 650;
-        return ColoredBox(
-          color: dark
-              ? Theme.of(context).scaffoldBackgroundColor
-              : _lightBackground,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, compact ? 12 : 20, 20, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        return Stack(
+          children: [
+            Positioned.fill(child: ColoredBox(color: palette.header)),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: compact ? 172 : 202,
+              child: _PresenciaHomeHeader(
+                profile: widget.profile,
+                classCount: todayClasses.length,
+                date: now,
+                compact: compact,
+                onOpenProfile: widget.onOpenProfile,
+              ),
+            ),
+            Column(
               children: [
-                _StudentHomeHeader(
-                  profile: widget.profile,
-                  accent: accent,
-                  onOpenProfile: widget.onOpenProfile,
-                ),
-                SizedBox(height: compact ? 16 : 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Tu día',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontSize: compact ? 18 : 20,
-                          fontWeight: FontWeight.w800,
-                        ),
+                SizedBox(height: compact ? 152 : 182),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: palette.background,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(32),
                       ),
                     ),
-                    TextButton(
-                      onPressed: widget.onOpenSchedule,
-                      style: TextButton.styleFrom(
-                        foregroundColor: accent,
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        visualDensity: VisualDensity.compact,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        compact ? 14 : 22,
+                        12,
+                        10,
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Column(
                         children: [
-                          Text(
-                            'Ver horario completo',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child:
+                                widget.scheduleLoading &&
+                                    widget.schedule.isEmpty
+                                ? const Center(child: _AcademicLoadingCard())
+                                : todayItems.isEmpty
+                                ? const Center(child: _NoClassesTodayCard())
+                                : LayoutBuilder(
+                                    builder: (context, listConstraints) {
+                                      final verticalInset =
+                                          ((listConstraints.maxHeight -
+                                                      _cardHeight) /
+                                                  2)
+                                              .clamp(0.0, double.infinity);
+                                      return NotificationListener<
+                                        ScrollEndNotification
+                                      >(
+                                        onNotification: (_) {
+                                          _selectSnappedClass(
+                                            todayItems.length,
+                                          );
+                                          return false;
+                                        },
+                                        child: ListView.separated(
+                                          key: const Key(
+                                            'attendance-class-list',
+                                          ),
+                                          controller: _classScrollController,
+                                          physics: const _CardSnapPhysics(
+                                            itemExtent:
+                                                _cardHeight + _cardSpacing,
+                                          ),
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: verticalInset,
+                                          ),
+                                          itemCount: todayItems.length,
+                                          separatorBuilder: (_, _) =>
+                                              const SizedBox(
+                                                height: _cardSpacing,
+                                              ),
+                                          itemBuilder: (context, index) {
+                                            final item = todayItems[index];
+                                            final selected =
+                                                index == selectedIndex;
+                                            final isFree = _isFreeOccurrence(
+                                              item,
+                                            );
+                                            final registered =
+                                                !isFree &&
+                                                (widget.attendanceHistory.any(
+                                                      (entry) =>
+                                                          _attendanceMatches(
+                                                            entry,
+                                                            item,
+                                                            now,
+                                                          ),
+                                                    ) ||
+                                                    (selected &&
+                                                        selectedRegistered));
+                                            return Semantics(
+                                              selected: selected,
+                                              button: true,
+                                              child: GestureDetector(
+                                                key: ValueKey(
+                                                  'attendance-class-$index',
+                                                ),
+                                                behavior:
+                                                    HitTestBehavior.opaque,
+                                                onTap: () => _focusClass(index),
+                                                child: SizedBox(
+                                                  height: _cardHeight,
+                                                  child: Row(
+                                                    children: [
+                                                      AnimatedContainer(
+                                                        key: ValueKey(
+                                                          'attendance-selection-$index',
+                                                        ),
+                                                        duration:
+                                                            const Duration(
+                                                              milliseconds: 180,
+                                                            ),
+                                                        curve: Curves.easeOut,
+                                                        width: 4,
+                                                        height: 52,
+                                                        decoration: BoxDecoration(
+                                                          color: selected
+                                                              ? palette.accent
+                                                              : Colors
+                                                                    .transparent,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                4,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: isFree
+                                                            ? _HomeFreeCard(
+                                                                occurrence:
+                                                                    item,
+                                                              )
+                                                            : _ClassCard(
+                                                                occurrence:
+                                                                    item,
+                                                                registered:
+                                                                    registered,
+                                                                now: now,
+                                                              ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                          if (dayFinished) ...[
+                            const SizedBox(height: 6),
+                            const _DayFinishedBanner(),
+                          ],
+                          if (widget.confirmed && !selectedRegistered) ...[
+                            const SizedBox(height: 6),
+                            _AttendanceConfirmedBanner(
+                              className: widget.confirmedClassName,
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: FilledButton(
+                              onPressed: selectedRegistered || selectedIsFree
+                                  ? null
+                                  : widget.onRegister,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: palette.accent,
+                                disabledBackgroundColor: selectedIsFree
+                                    ? palette.freeSurface
+                                    : palette.successSurface,
+                                foregroundColor: palette.background,
+                                disabledForegroundColor: selectedIsFree
+                                    ? palette.muted
+                                    : palette.success,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: widget.isChecking && !selectedRegistered
+                                  ? const SizedBox.square(
+                                      dimension: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2.2,
+                                      ),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.max,
+                                      children: [
+                                        Image.asset(
+                                          'assets/figma/asistencia.png',
+                                          width: 20,
+                                          height: 20,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Flexible(
+                                          child: Text(
+                                            buttonTitle,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                             ),
                           ),
-                          SizedBox(width: 5),
-                          Icon(Icons.arrow_forward_rounded, size: 13),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-                Text(
-                  todayClasses.length > 1
-                      ? 'Desliza hacia arriba o abajo para elegir'
-                      : 'Tu clase programada para hoy',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                SizedBox(height: compact ? 6 : 10),
-                Expanded(
-                  child: widget.scheduleLoading && widget.schedule.isEmpty
-                      ? const Center(child: _AcademicLoadingCard())
-                      : todayClasses.isEmpty
-                      ? const Center(child: _NoClassesTodayCard())
-                      : Row(
-                          children: [
-                            Expanded(
-                              child: LayoutBuilder(
-                                builder: (context, carouselConstraints) {
-                                  _carouselItemExtent =
-                                      carouselConstraints.maxHeight *
-                                      _carouselViewportFraction;
-                                  final trailingSpace =
-                                      (carouselConstraints.maxHeight -
-                                              _carouselItemExtent -
-                                              _carouselPreviousCardPeek)
-                                          .clamp(0.0, double.infinity);
-                                  return NotificationListener<
-                                    ScrollEndNotification
-                                  >(
-                                    onNotification: (notification) =>
-                                        _handleClassScrollEnd(
-                                          notification,
-                                          todayClasses.length,
-                                        ),
-                                    child: ListView.builder(
-                                      key: const Key(
-                                        'attendance-class-carousel',
-                                      ),
-                                      controller: _classScrollController,
-                                      scrollDirection: Axis.vertical,
-                                      physics: const BouncingScrollPhysics(),
-                                      padding: EdgeInsets.only(
-                                        bottom: trailingSpace,
-                                      ),
-                                      itemExtent: _carouselItemExtent,
-                                      itemCount: todayClasses.length,
-                                      itemBuilder: (context, index) {
-                                        return GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () => _moveToClass(index),
-                                          child: _ClassCard(
-                                            key: ValueKey(
-                                              'attendance-class-$index',
-                                            ),
-                                            occurrence: todayClasses[index],
-                                            selected:
-                                                index == effectiveSelectedClass,
-                                            now: now,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            if (todayClasses.length > 1) ...[
-                              const SizedBox(width: 8),
-                              _VerticalPageIndicator(
-                                count: todayClasses.length,
-                                index: effectiveSelectedClass,
-                                color: accent,
-                              ),
-                            ],
-                          ],
-                        ),
-                ),
-                if (dayFinished) ...[
-                  SizedBox(height: compact ? 6 : 8),
-                  const _DayFinishedBanner(),
-                ],
-                if (widget.confirmed) ...[
-                  const SizedBox(height: 8),
-                  _AttendanceConfirmedBanner(
-                    className: widget.confirmedClassName,
-                  ),
-                ],
-                SizedBox(height: compact ? 10 : 16),
-                Semantics(
-                  button: true,
-                  label: buttonTitle,
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: compact ? 50 : 54,
-                    child: FilledButton(
-                      onPressed: widget.confirmed ? null : widget.onRegister,
-                      style: FilledButton.styleFrom(
-                        disabledBackgroundColor: widget.confirmed
-                            ? AppColors.success
-                            : dark
-                            ? scheme.surfaceContainerHighest
-                            : const Color(0xFFD5D8DC),
-                        backgroundColor: widget.confirmed
-                            ? AppColors.success
-                            : _orange,
-                        foregroundColor: Colors.white,
-                        disabledForegroundColor: Colors.white,
-                        shape: const StadiumBorder(),
-                        elevation: 0,
-                      ),
-                      child: widget.isChecking
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              buttonTitle,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                              ),
-                            ),
                     ),
                   ),
                 ),
               ],
             ),
-          ),
+          ],
         );
       },
     );
@@ -934,125 +1062,175 @@ class _SchedulePageState extends State<_SchedulePage> {
 
   void _revealSelectedDay() {
     if (!mounted || !_dayScrollController.hasClients) return;
-    final target = ((_weekday - 1) * 58.0).clamp(
+    final target = ((_weekday - 1) * 50.0).clamp(
       0.0,
       _dayScrollController.position.maxScrollExtent,
     );
-    _dayScrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
+    unawaited(
+      _dayScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    const lightBackground = Color(0xFFF7F8FA);
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final now = DateTime.now();
+    final palette = AppPalette.of(context);
     final weekStart = DateTime(
       now.year,
       now.month,
       now.day,
     ).subtract(Duration(days: now.weekday - 1));
     final selectedDate = weekStart.add(Duration(days: _weekday - 1));
-    final classes = scheduleForWeekday(widget.schedule, _weekday);
+    final timelineItems = _dayItems(widget.schedule, _weekday);
+    final classes = timelineItems
+        .where((occurrence) => !_isFreeOccurrence(occurrence))
+        .toList();
+    final freeMinutes = _totalFreeMinutes(timelineItems, selectedDate);
+    final countLabel =
+        '${classes.length} ${classes.length == 1 ? 'clase' : 'clases'}';
+    final freeLabel = freeMinutes >= 30
+        ? ' · ${_freeDurationLabel(freeMinutes)} libre'
+        : '';
+
     return ColoredBox(
       key: const Key('full-schedule-background'),
-      color: dark ? Theme.of(context).scaffoldBackgroundColor : lightBackground,
+      color: palette.background,
       child: RefreshIndicator(
+        color: palette.accent,
         onRefresh: widget.onRetry,
-        child: SingleChildScrollView(
+        child: ListView(
+          key: const Key('full-schedule-scroll'),
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _ScheduleHeader(
-                weekNumber: _isoWeekNumber(selectedDate),
-                month: _monthName(selectedDate.month),
-                onBack: widget.onBack,
-              ),
-              const SizedBox(height: 26),
-              SizedBox(
-                key: const Key('full-schedule-day-selector'),
-                height: 64,
-                child: ListView.separated(
-                  controller: _dayScrollController,
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _days.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (_, index) {
-                    final weekday = index + 1;
-                    final date = weekStart.add(Duration(days: index));
-                    return _ScheduleDayPill(
-                      day: _days[index],
-                      date: date.day,
-                      selected: _weekday == weekday,
-                      onTap: () => _selectWeekday(weekday),
-                    );
-                  },
+          padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
+          children: [
+            _ScheduleHeader(onBack: widget.onBack),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_monthName(selectedDate.month)} ${selectedDate.year}',
+                    style: TextStyle(
+                      color: palette.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _scheduleSectionTitle(selectedDate, now),
-                      key: const Key('full-schedule-section-title'),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'SEMANA ${_isoWeekNumber(selectedDate)}',
+                    style: TextStyle(
+                      color: palette.muted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (classes.isNotEmpty)
-                    Text(
-                      _scheduleRange(classes),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (widget.loading && widget.schedule.isEmpty)
-                const _AcademicLoadingCard()
-              else if (widget.errorMessage != null && widget.schedule.isEmpty)
-                _AcademicErrorCard(
-                  message: widget.errorMessage!,
-                  onRetry: widget.onRetry,
-                )
-              else if (classes.isEmpty)
-                const Card(child: _EmptySchedule())
-              else
-                for (var index = 0; index < classes.length; index++) ...[
-                  _FullScheduleCard(
-                    key: ValueKey('full-schedule-card-$index'),
-                    occurrence: classes[index],
-                    selectedDate: selectedDate,
-                    now: now,
-                    registered: widget.attendanceHistory.any(
-                      (entry) => _attendanceMatches(
-                        entry,
-                        classes[index],
-                        selectedDate,
-                      ),
-                    ),
-                  ),
-                  if (index < classes.length - 1) const SizedBox(height: 10),
-                ],
-              if (widget.errorMessage != null &&
-                  widget.schedule.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                _InlineSyncWarning(
-                  message: widget.errorMessage!,
-                  onRetry: widget.onRetry,
                 ),
               ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              key: const Key('full-schedule-day-selector'),
+              height: 64,
+              child: ListView.separated(
+                controller: _dayScrollController,
+                scrollDirection: Axis.horizontal,
+                itemCount: _days.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 6),
+                itemBuilder: (_, index) {
+                  final date = weekStart.add(Duration(days: index));
+                  return _ScheduleDayPill(
+                    day: _days[index],
+                    date: date.day,
+                    selected: _weekday == index + 1,
+                    today: _isSameCalendarDay(date, now),
+                    onTap: () => _selectWeekday(index + 1),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(height: 1, color: palette.border),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _scheduleDayHeading(selectedDate),
+                    key: const Key('full-schedule-section-title'),
+                    style: TextStyle(
+                      color: palette.ink,
+                      fontSize: 20,
+                      height: 1.3,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (classes.isNotEmpty)
+                  Text(
+                    _scheduleRange(classes).replaceAll(' – ', '–'),
+                    style: TextStyle(
+                      color: palette.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$countLabel$freeLabel',
+                    style: TextStyle(
+                      color: palette.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (widget.loading && widget.schedule.isEmpty)
+              const _AcademicLoadingCard()
+            else if (widget.errorMessage != null && widget.schedule.isEmpty)
+              _AcademicErrorCard(
+                message: widget.errorMessage!,
+                onRetry: widget.onRetry,
+              )
+            else if (timelineItems.isEmpty)
+              const _EmptySchedule()
+            else
+              ..._buildScheduleTimeline(
+                context,
+                timelineItems,
+                selectedDate,
+                now,
+                widget.attendanceHistory,
+              ),
+            if (widget.errorMessage != null && widget.schedule.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _InlineSyncWarning(
+                message: widget.errorMessage!,
+                onRetry: widget.onRetry,
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -1060,51 +1238,62 @@ class _SchedulePageState extends State<_SchedulePage> {
 }
 
 class _ScheduleHeader extends StatelessWidget {
-  const _ScheduleHeader({
-    required this.weekNumber,
-    required this.month,
-    required this.onBack,
-  });
+  const _ScheduleHeader({required this.onBack});
 
-  final int weekNumber;
-  final String month;
   final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = dark ? const Color(0xFF5DC2F0) : const Color(0xFF003B5C);
+    final palette = AppPalette.of(context);
     return Row(
       children: [
-        IconButton(
-          key: const Key('subpage-back-button'),
-          tooltip: 'Volver al inicio',
-          onPressed: onBack,
-          visualDensity: VisualDensity.compact,
-          style: IconButton.styleFrom(foregroundColor: accent),
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Mi horario',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontSize: 23,
-                  fontWeight: FontWeight.w800,
+        Tooltip(
+          message: 'Volver al inicio',
+          child: Material(
+            color: palette.surface,
+            shape: CircleBorder(side: BorderSide(color: palette.border)),
+            child: InkWell(
+              key: const Key('subpage-back-button'),
+              customBorder: const CircleBorder(),
+              onTap: onBack,
+              child: SizedBox.square(
+                dimension: 44,
+                child: Center(
+                  child: Icon(
+                    Icons.arrow_back_rounded,
+                    color: palette.ink,
+                    size: 20,
+                  ),
                 ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                'Semana $weekNumber · $month',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
+            ),
           ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'TU VIDA EN EL CAMPUS',
+              style: TextStyle(
+                color: palette.muted,
+                fontSize: 10,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Mi horario',
+              style: TextStyle(
+                color: palette.ink,
+                fontSize: 26,
+                height: 1.23,
+                letterSpacing: -.7,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1116,40 +1305,37 @@ class _ScheduleDayPill extends StatelessWidget {
     required this.day,
     required this.date,
     required this.selected,
+    required this.today,
     required this.onTap,
   });
 
   final String day;
   final int date;
   final bool selected;
+  final bool today;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    const orange = Color(0xFFD65F05);
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final palette = AppPalette.of(context);
     return Semantics(
       selected: selected,
       button: true,
-      label: '$day $date',
+      label: '$day $date${today ? ', hoy' : ''}',
       child: Material(
-        color: Colors.transparent,
+        color: selected ? palette.header : palette.surface,
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 50,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            width: 44,
+            height: 64,
             decoration: BoxDecoration(
-              color: selected ? orange : appSurface(context),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: selected
-                    ? orange
-                    : dark
-                    ? const Color(0xFF34383C)
-                    : const Color(0xFFD7DDE2),
-              ),
+              borderRadius: BorderRadius.circular(16),
+              border: today && !selected
+                  ? Border.all(color: palette.accent, width: 1.25)
+                  : null,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1157,18 +1343,18 @@ class _ScheduleDayPill extends StatelessWidget {
                 Text(
                   day,
                   style: TextStyle(
-                    color: selected ? Colors.white : appMuted(context),
+                    color: selected ? Colors.white : palette.muted,
                     fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   '$date',
                   style: TextStyle(
-                    color: selected ? Colors.white : appMuted(context),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : palette.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -1493,96 +1679,176 @@ class _PageHeader extends StatelessWidget {
   }
 }
 
-class _StudentHomeHeader extends StatelessWidget {
-  const _StudentHomeHeader({
+class _PresenciaHomeHeader extends StatelessWidget {
+  const _PresenciaHomeHeader({
     required this.profile,
-    required this.accent,
+    required this.classCount,
+    required this.date,
+    required this.compact,
     required this.onOpenProfile,
   });
 
   final StudentAcademicProfile profile;
-  final Color accent;
+  final int classCount;
+  final DateTime date;
+  final bool compact;
   final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     final name = profile.displayName.trim();
     final firstName = name.isEmpty
-        ? 'estudiante'
-        : name.split(RegExp(r'\s+')).first;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Hola, $firstName',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                _formattedHomeDate(DateTime.now()),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
+        ? 'ESTUDIANTE'
+        : name.split(RegExp(r'\s+')).first.toUpperCase();
+    return ColoredBox(
+      color: palette.header,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            right: -83,
+            top: compact ? 38 : 52,
+            child: Image.asset(
+              'assets/figma/orbita.png',
+              width: 180,
+              height: 180,
+            ),
           ),
-        ),
-        const SizedBox(width: 16),
-        Tooltip(
-          message: 'Abrir perfil',
-          child: Semantics(
-            button: true,
-            label: 'Abrir perfil de ${profile.displayName}',
-            child: Material(
-              color: accent,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: onOpenProfile,
-                child: SizedBox.square(
-                  dimension: 48,
-                  child: Center(
-                    child: Text(
-                      _profileInitials(profile),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+          Positioned(
+            top: compact ? 16 : 22,
+            left: 24,
+            right: 24,
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: palette.headerAccent,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'presencia',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      height: 1.3,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: 'Abrir perfil',
+                  child: Material(
+                    color: palette.headerSoft,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      onTap: onOpenProfile,
+                      customBorder: const CircleBorder(),
+                      child: SizedBox.square(
+                        dimension: 44,
+                        child: Center(
+                          child: Text(
+                            _profileInitials(profile),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
-        ),
-      ],
+          Positioned(
+            top: compact ? 66 : 78,
+            left: 24,
+            right: 24,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'HOLA, $firstName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.headerMuted,
+                    fontSize: 10,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tu día:',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 30 : 34,
+                    height: 1.11,
+                    letterSpacing: -.7,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: compact ? 126 : 150,
+            left: 24,
+            right: 24,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _formattedHomeDate(date),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.headerMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$classCount ${classCount == 1 ? 'clase' : 'clases'} hoy',
+                  style: TextStyle(
+                    color: palette.headerAccent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _ClassCard extends StatelessWidget {
   const _ClassCard({
-    super.key,
     required this.occurrence,
-    required this.selected,
+    required this.registered,
     required this.now,
   });
+
   final StudentScheduleOccurrence occurrence;
-  final bool selected;
+  final bool registered;
   final DateTime now;
 
   @override
   Widget build(BuildContext context) {
-    const orange = Color(0xFFD65F05);
-    const navy = Color(0xFF003B5C);
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final palette = AppPalette.of(context);
     final start = _scheduleTimeForToday(occurrence.slot.startTime, now);
     final end = _scheduleTimeForToday(occurrence.slot.endTime, now);
     final inProgress =
@@ -1591,224 +1857,261 @@ class _ClassCard extends StatelessWidget {
         !now.isBefore(start) &&
         now.isBefore(end);
     final ended = end != null && !now.isBefore(end);
+    final missed = ended && !registered;
+    final statusColor = registered
+        ? palette.success
+        : missed
+        ? palette.warning
+        : palette.muted;
+    final timeColor = registered || missed ? statusColor : palette.ink;
+    final detail = registered
+        ? 'Asistencia registrada'
+        : inProgress
+        ? 'Clase en curso · registro disponible'
+        : ended
+        ? 'Clase terminada · registro disponible'
+        : start != null && start.isAfter(now)
+        ? 'Próxima clase'
+        : 'Clase programada';
+    final time =
+        occurrence.slot.startTime != null && occurrence.slot.endTime != null
+        ? '${occurrence.slot.startTime}–${occurrence.slot.endTime}'
+        : occurrence.slot.displayTime;
+    final room = occurrence.entry.classroom ?? 'Aula por confirmar';
 
-    late final String status;
-    late final Color statusColor;
-    if (inProgress) {
-      status = 'Asistencia pendiente';
-      statusColor = const Color(0xFFC92A20);
-    } else if (ended) {
-      status = 'Clase terminada · registro disponible';
-      statusColor = orange;
-    } else if (start != null && start.isAfter(now)) {
-      final minutes = start.difference(now).inMinutes + 1;
-      status = minutes < 60 ? 'Comienza en $minutes min' : 'Próxima clase';
-      statusColor = dark ? const Color(0xFF5DC2F0) : navy;
-    } else {
-      status = 'Disponible para registrar';
-      statusColor = orange;
-    }
-
-    final roomAndState = [
-      occurrence.entry.classroom ?? 'Aula por confirmar',
-      if (inProgress) 'En curso',
-    ].join(' · ');
-    final timeColor = selected
-        ? orange
-        : dark
-        ? const Color(0xFF5DC2F0)
-        : navy;
-
-    return AnimatedScale(
-      scale: selected ? 1 : .95,
-      duration: const Duration(milliseconds: 200),
-      child: AnimatedOpacity(
-        opacity: selected ? 1 : .72,
-        duration: const Duration(milliseconds: 200),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            decoration: BoxDecoration(
-              color: selected
-                  ? dark
-                        ? orange.withValues(alpha: .16)
-                        : const Color(0xFFFFEEE2)
-                  : appSurface(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: selected
-                    ? orange.withValues(alpha: .52)
-                    : dark
-                    ? const Color(0xFF34383C)
-                    : const Color(0xFFD7DDE2),
-              ),
-              boxShadow: selected && !dark
-                  ? [
-                      BoxShadow(
-                        color: orange.withValues(alpha: .08),
-                        blurRadius: 16,
-                        offset: const Offset(0, 5),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 56,
-                  child:
-                      occurrence.slot.startTime != null &&
-                          occurrence.slot.endTime != null
-                      ? Column(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              occurrence.slot.startTime!,
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: timeColor,
-                                fontSize: 11,
-                                height: 1,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              occurrence.slot.endTime!,
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: timeColor,
-                                fontSize: 11,
-                                height: 1,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        )
-                      : Text(
-                          occurrence.slot.displayTime,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: timeColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        subjectDisplayName(occurrence.entry.subject),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: 13,
-                          height: 1,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        roomAndState,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: 10,
-                          height: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              status,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: 10,
-                                height: 1,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+    return Container(
+      key: const Key('attendance-card-surface'),
+      height: 158,
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: registered
+            ? palette.successSurface
+            : missed
+            ? palette.warningSurface
+            : palette.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: registered || missed
+              ? statusColor.withValues(alpha: .45)
+              : palette.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: timeColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
+              ),
+              Icon(
+                registered
+                    ? Icons.check_circle_rounded
+                    : missed
+                    ? Icons.warning_amber_rounded
+                    : inProgress
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.schedule_rounded,
+                size: 19,
+                color: statusColor,
+                semanticLabel: registered
+                    ? 'Asistencia registrada'
+                    : missed
+                    ? 'Sin asistencia registrada'
+                    : inProgress
+                    ? 'Clase en curso'
+                    : 'Clase programada',
+              ),
+            ],
+          ),
+          Text(
+            subjectDisplayName(occurrence.entry.subject),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.ink,
+              fontSize: 18,
+              height: 1.2,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ),
+          Row(
+            children: [
+              Icon(Icons.location_on_outlined, size: 16, color: palette.muted),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  room,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Text(
+            detail,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _VerticalPageIndicator extends StatelessWidget {
-  const _VerticalPageIndicator({
-    required this.count,
-    required this.index,
-    required this.color,
-  });
+class _HomeFreeCard extends StatelessWidget {
+  const _HomeFreeCard({required this.occurrence});
 
-  final int count;
-  final int index;
-  final Color color;
+  final StudentScheduleOccurrence occurrence;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: 'Clase ${index + 1} de $count',
-    child: SizedBox(
-      width: 18,
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(count, (dotIndex) {
-            final active = dotIndex == index;
-            return AnimatedContainer(
-              key: ValueKey(
-                'class-indicator-$dotIndex-${active ? 'active' : 'inactive'}',
-              ),
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              width: 7,
-              height: active ? 22 : 7,
-              margin: const EdgeInsets.symmetric(vertical: 3),
-              decoration: BoxDecoration(
-                color: active
-                    ? color
-                    : appMuted(context).withValues(alpha: .28),
-                borderRadius: BorderRadius.circular(8),
-              ),
-            );
-          }),
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final time =
+        occurrence.slot.startTime != null && occurrence.slot.endTime != null
+        ? '${occurrence.slot.startTime}–${occurrence.slot.endTime}'
+        : occurrence.slot.displayTime;
+    return Container(
+      height: 158,
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.freeSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Icon(Icons.spa_outlined, color: palette.muted, size: 24),
+          Text(
+            'Hora libre',
+            style: TextStyle(
+              color: palette.ink,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Text(
+            time,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.muted,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            'Un respiro entre clases.',
+            style: TextStyle(color: palette.muted, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresenciaBottomNav extends StatelessWidget {
+  const _PresenciaBottomNav({
+    required this.selectedTab,
+    required this.onSelect,
+  });
+
+  final int selectedTab;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    const tabs = [
+      ('Tu día', 'assets/figma/tu_dia.png'),
+      ('Horario', 'assets/figma/horario.png'),
+      ('Historial', 'assets/figma/historial.png'),
+    ];
+    return ColoredBox(
+      color: palette.surface,
+      child: SizedBox(
+        height: 72,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              for (var index = 0; index < tabs.length; index++) ...[
+                if (index > 0) const SizedBox(width: 8),
+                Expanded(
+                  child: Material(
+                    color: index == selectedTab
+                        ? palette.accentSurface
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => onSelect(index),
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 44,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            ColorFiltered(
+                              colorFilter: ColorFilter.mode(
+                                index == selectedTab
+                                    ? palette.accent
+                                    : palette.muted,
+                                BlendMode.srcIn,
+                              ),
+                              child: Image.asset(
+                                tabs[index].$2,
+                                width: 20,
+                                height: 20,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              tabs[index].$1,
+                              style: TextStyle(
+                                color: index == selectedTab
+                                    ? palette.accent
+                                    : palette.muted,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _AttendanceConfirmedBanner extends StatelessWidget {
@@ -1877,6 +2180,183 @@ class _DayFinishedBanner extends StatelessWidget {
 
 enum _FullScheduleState { registered, inProgress, ended, upcoming, scheduled }
 
+List<Widget> _buildScheduleTimeline(
+  BuildContext context,
+  List<StudentScheduleOccurrence> timelineItems,
+  DateTime selectedDate,
+  DateTime now,
+  List<AttendanceHistoryEntry> history,
+) {
+  final palette = AppPalette.of(context);
+  final items = <Widget>[];
+  for (var index = 0; index < timelineItems.length; index++) {
+    final occurrence = timelineItems[index];
+    if (_isFreeOccurrence(occurrence)) {
+      items.add(
+        _FreeTimeCard(
+          start: occurrence.slot.startTime,
+          end: occurrence.slot.endTime,
+        ),
+      );
+    } else {
+      final start = occurrence.slot.startTime ?? '—';
+      final registered = history.any(
+        (entry) => _attendanceMatches(entry, occurrence, selectedDate),
+      );
+      final missed =
+          !registered && _occurrenceHasPassed(occurrence, selectedDate, now);
+      final statusColor = registered
+          ? palette.success
+          : missed
+          ? palette.warning
+          : palette.muted;
+      items.add(
+        Row(
+          key: ValueKey('full-schedule-row-$index'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 56,
+              height: 128,
+              child: Column(
+                children: [
+                  Text(
+                    start,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(child: Container(width: 1, color: palette.border)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _FullScheduleCard(
+                key: ValueKey('full-schedule-card-$index'),
+                occurrence: occurrence,
+                selectedDate: selectedDate,
+                now: now,
+                registered: registered,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (index < timelineItems.length - 1) {
+      items.add(const SizedBox(height: 12));
+    }
+  }
+  final classes = timelineItems
+      .where((occurrence) => !_isFreeOccurrence(occurrence))
+      .toList();
+  if (classes.isNotEmpty && classes.last.slot.endTime != null) {
+    items.add(const SizedBox(height: 12));
+    items.add(
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: palette.surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tu última clase termina a las ${classes.last.slot.endTime}',
+              style: TextStyle(
+                color: palette.ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Después, el campus es tuyo.',
+              style: TextStyle(
+                color: palette.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  return items;
+}
+
+class _FreeTimeCard extends StatelessWidget {
+  const _FreeTimeCard({required this.start, required this.end});
+
+  final String? start;
+  final String? end;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final range = start != null && end != null
+        ? '$start–$end · Hora libre'
+        : 'Hora libre';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.freeSurface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.spa_outlined, size: 20, color: palette.muted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  range,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Un respiro entre clases.',
+                  style: TextStyle(
+                    color: palette.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FullScheduleCard extends StatelessWidget {
   const _FullScheduleCard({
     super.key,
@@ -1893,12 +2373,7 @@ class _FullScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const navy = Color(0xFF003B5C);
-    const orange = Color(0xFFD65F05);
-    const pendingRed = Color(0xFFC92A20);
-    const success = Color(0xFF18864B);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = dark ? const Color(0xFF5DC2F0) : navy;
+    final palette = AppPalette.of(context);
     final start = _scheduleTimeForDate(occurrence.slot.startTime, selectedDate);
     final end = _scheduleTimeForDate(occurrence.slot.endTime, selectedDate);
     final selectedDay = DateTime(
@@ -1907,9 +2382,6 @@ class _FullScheduleCard extends StatelessWidget {
       selectedDate.day,
     );
     final today = DateTime(now.year, now.month, now.day);
-    final isFree =
-        subjectDisplayName(occurrence.entry.subject).toLowerCase() == 'libre';
-
     late final _FullScheduleState state;
     if (registered) {
       state = _FullScheduleState.registered;
@@ -1928,140 +2400,117 @@ class _FullScheduleCard extends StatelessWidget {
     } else {
       state = _FullScheduleState.scheduled;
     }
-
-    final highlighted = !isFree && state == _FullScheduleState.inProgress;
+    final missed = state == _FullScheduleState.ended;
     final status = switch (state) {
+      _FullScheduleState.registered => 'REGISTRADA',
+      _FullScheduleState.ended => 'SIN REGISTRO',
+      _FullScheduleState.inProgress => 'EN CURSO',
+      _FullScheduleState.upcoming => 'PRÓXIMA',
+      _FullScheduleState.scheduled => 'PROGRAMADA',
+    };
+    final statusColor = registered
+        ? palette.success
+        : missed
+        ? palette.warning
+        : palette.muted;
+    final detail = switch (state) {
       _FullScheduleState.registered => 'Asistencia registrada',
       _FullScheduleState.inProgress => 'Asistencia pendiente',
       _FullScheduleState.ended => 'Clase terminada · registro disponible',
-      _FullScheduleState.upcoming => 'Próxima clase',
+      _FullScheduleState.upcoming =>
+        selectedDay == today &&
+                start != null &&
+                start.difference(now).inMinutes < 60
+            ? 'Comienza en ${start.difference(now).inMinutes + 1} min'
+            : 'Próxima clase',
       _FullScheduleState.scheduled => 'Clase programada',
     };
-    final statusColor = switch (state) {
-      _FullScheduleState.registered => success,
-      _FullScheduleState.inProgress => pendingRed,
-      _FullScheduleState.ended => orange,
-      _FullScheduleState.upcoming || _FullScheduleState.scheduled => accent,
-    };
-    final statusIcon = switch (state) {
-      _FullScheduleState.registered => Icons.check_rounded,
-      _FullScheduleState.inProgress => Icons.circle,
-      _FullScheduleState.ended => Icons.schedule_rounded,
-      _FullScheduleState.upcoming => Icons.arrow_forward_rounded,
-      _FullScheduleState.scheduled => Icons.event_available_rounded,
-    };
-    final room = occurrence.entry.classroom ?? 'Aula por confirmar';
-    final roomLabel = highlighted ? '$room · En curso' : room;
+    final time =
+        occurrence.slot.startTime != null && occurrence.slot.endTime != null
+        ? '${occurrence.slot.startTime}–${occurrence.slot.endTime}'
+        : occurrence.slot.displayTime;
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 92),
-      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
+      height: 128,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: highlighted
-            ? dark
-                  ? orange.withValues(alpha: .15)
-                  : const Color(0xFFFFEEE2)
-            : appSurface(context),
-        borderRadius: BorderRadius.circular(14),
+        color: registered
+            ? palette.successSurface
+            : missed
+            ? palette.warningSurface
+            : palette.surface,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: highlighted
-              ? orange.withValues(alpha: .45)
-              : dark
-              ? const Color(0xFF34383C)
-              : const Color(0xFFD7DDE2),
+          color: registered || missed
+              ? statusColor.withValues(alpha: .55)
+              : palette.border,
         ),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          SizedBox(
-            width: 62,
-            child:
-                occurrence.slot.startTime != null &&
-                    occurrence.slot.endTime != null
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        occurrence.slot.startTime!,
-                        style: TextStyle(
-                          color: highlighted ? orange : accent,
-                          fontSize: 12,
-                          height: 1,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        occurrence.slot.endTime!,
-                        style: TextStyle(
-                          color: highlighted ? orange : accent,
-                          fontSize: 12,
-                          height: 1,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  )
-                : Text(
-                    occurrence.slot.displayTime,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  subjectDisplayName(occurrence.entry.subject),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontSize: 13,
+                  style: TextStyle(
+                    color: registered || missed ? statusColor : palette.ink,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  isFree ? '-' : roomLabel,
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            subjectDisplayName(occurrence.entry.subject),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: palette.ink,
+              fontSize: 14,
+              height: 1.43,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Row(
+            children: [
+              Icon(Icons.location_on_outlined, size: 16, color: palette.muted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  occurrence.entry.classroom ?? 'Aula por confirmar',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontSize: 11),
-                ),
-                const SizedBox(height: 5),
-                if (isFree)
-                  Text('-', style: TextStyle(color: accent, fontSize: 11))
-                else
-                  Row(
-                    children: [
-                      Icon(statusIcon, color: statusColor, size: 13),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          status,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: statusColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
+                  style: TextStyle(
+                    color: palette.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
-              ],
+                ),
+              ),
+            ],
+          ),
+          Text(
+            detail,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -2175,6 +2624,113 @@ int _isoWeekNumber(DateTime date) {
   return 1 + thursday.difference(firstDayOfIsoYear).inDays ~/ 7;
 }
 
+bool _isFreeOccurrence(StudentScheduleOccurrence occurrence) =>
+    subjectDisplayName(occurrence.entry.subject).trim().toLowerCase() ==
+    'libre';
+
+bool _isOccurrenceInProgress(
+  StudentScheduleOccurrence occurrence,
+  DateTime now,
+) {
+  final start = _scheduleTimeForToday(occurrence.slot.startTime, now);
+  final end = _scheduleTimeForToday(occurrence.slot.endTime, now);
+  return start != null &&
+      end != null &&
+      !now.isBefore(start) &&
+      now.isBefore(end);
+}
+
+List<StudentScheduleOccurrence> _dayItems(
+  List<StudentScheduleEntry> schedule,
+  int weekday,
+) {
+  final occurrences = scheduleForWeekday(schedule, weekday);
+  // El horario puede traer horas libres explícitas. En ese caso conservamos
+  // sus intervalos y evitamos crear tarjetas duplicadas entre clases.
+  if (occurrences.any(_isFreeOccurrence)) return occurrences;
+  final classes = occurrences;
+  final items = <StudentScheduleOccurrence>[];
+  for (var index = 0; index < classes.length; index++) {
+    items.add(classes[index]);
+    if (index == classes.length - 1) continue;
+    final end = classes[index].slot.endTime;
+    final start = classes[index + 1].slot.startTime;
+    final date = DateTime(2024, 1, 1);
+    if (end == null ||
+        start == null ||
+        _freeGapMinutes(classes[index], classes[index + 1], date) < 30) {
+      continue;
+    }
+    items.add(
+      StudentScheduleOccurrence(
+        entry: StudentScheduleEntry(
+          externalGroupId: '',
+          subject: 'Libre',
+          slots: const [],
+        ),
+        slot: StudentScheduleSlot(
+          weekday: weekday,
+          raw: '$end - $start',
+          startTime: end,
+          endTime: start,
+        ),
+      ),
+    );
+  }
+  return items;
+}
+
+int _preferredClassIndex(List<StudentScheduleEntry> schedule, DateTime now) {
+  final items = _dayItems(schedule, now.weekday);
+  if (items.isEmpty) return 0;
+  for (var index = 0; index < items.length; index++) {
+    if (_isOccurrenceInProgress(items[index], now)) return index;
+  }
+  for (var index = 0; index < items.length; index++) {
+    if (_isFreeOccurrence(items[index])) continue;
+    final start = _scheduleTimeForToday(items[index].slot.startTime, now);
+    if (start != null && start.isAfter(now)) return index;
+  }
+  if (items.any((occurrence) => occurrence.slot.startTime == null)) {
+    return 0;
+  }
+  final lastClass = items.lastIndexWhere(
+    (occurrence) => !_isFreeOccurrence(occurrence),
+  );
+  return lastClass < 0 ? 0 : lastClass;
+}
+
+int _freeGapMinutes(
+  StudentScheduleOccurrence left,
+  StudentScheduleOccurrence right,
+  DateTime date,
+) {
+  final end = _scheduleTimeForDate(left.slot.endTime, date);
+  final start = _scheduleTimeForDate(right.slot.startTime, date);
+  if (end == null || start == null) return 0;
+  return start.difference(end).inMinutes.clamp(0, 1440);
+}
+
+int _totalFreeMinutes(List<StudentScheduleOccurrence> items, DateTime date) {
+  var total = 0;
+  for (final item in items.where(_isFreeOccurrence)) {
+    final start = _scheduleTimeForDate(item.slot.startTime, date);
+    final end = _scheduleTimeForDate(item.slot.endTime, date);
+    if (start != null && end != null && end.isAfter(start)) {
+      total += end.difference(start).inMinutes;
+    }
+  }
+  return total;
+}
+
+String _freeDurationLabel(int minutes) {
+  final hours = minutes ~/ 60;
+  final remaining = minutes % 60;
+  if (hours == 0) return '$minutes min';
+  final label = '$hours ${hours == 1 ? 'hora' : 'horas'}';
+  return remaining == 0 ? label : '$label $remaining min';
+}
+
 String _monthName(int month) {
   const months = [
     'Enero',
@@ -2193,18 +2749,17 @@ String _monthName(int month) {
   return months[month.clamp(1, 12) - 1];
 }
 
-String _scheduleSectionTitle(DateTime selectedDate, DateTime now) {
-  if (_isSameCalendarDay(selectedDate, now)) return 'Clases de hoy';
+String _scheduleDayHeading(DateTime date) {
   const days = [
-    'lunes',
-    'martes',
-    'miércoles',
-    'jueves',
-    'viernes',
-    'sábado',
-    'domingo',
+    'Lunes',
+    'Martes',
+    'Miércoles',
+    'Jueves',
+    'Viernes',
+    'Sábado',
+    'Domingo',
   ];
-  return 'Clases del ${days[selectedDate.weekday - 1]}';
+  return '${days[date.weekday - 1]} ${date.day}';
 }
 
 String _scheduleRange(List<StudentScheduleOccurrence> classes) {
@@ -2256,6 +2811,19 @@ bool _isSameCalendarDay(DateTime left, DateTime right) =>
     left.month == right.month &&
     left.day == right.day;
 
+bool _occurrenceHasPassed(
+  StudentScheduleOccurrence occurrence,
+  DateTime selectedDate,
+  DateTime now,
+) {
+  final day = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+  final today = DateTime(now.year, now.month, now.day);
+  if (day.isBefore(today)) return true;
+  if (day.isAfter(today)) return false;
+  final end = _scheduleTimeForDate(occurrence.slot.endTime, selectedDate);
+  return end != null && !now.isBefore(end);
+}
+
 String _formattedHomeDate(DateTime date) {
   const weekdays = [
     'Lunes',
@@ -2266,21 +2834,7 @@ String _formattedHomeDate(DateTime date) {
     'Sábado',
     'Domingo',
   ];
-  const months = [
-    'enero',
-    'febrero',
-    'marzo',
-    'abril',
-    'mayo',
-    'junio',
-    'julio',
-    'agosto',
-    'septiembre',
-    'octubre',
-    'noviembre',
-    'diciembre',
-  ];
-  return '${weekdays[date.weekday - 1]}, ${date.day} de ${months[date.month - 1]}';
+  return '${weekdays[date.weekday - 1]} ${date.day} · ${_monthName(date.month)}';
 }
 
 DateTime? _scheduleTimeForToday(String? value, DateTime now) {

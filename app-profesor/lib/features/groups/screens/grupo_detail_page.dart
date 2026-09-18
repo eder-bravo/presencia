@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -99,6 +100,11 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
   bool _isCheckingStudentScanRequirements = false;
   bool _isLoadingStudentBindingStatus = false;
   bool _studentBindingStatusLoaded = false;
+  bool _hasResolvedStudentBindings = false;
+  bool _studentBindingsInForeground = true;
+  Future<void>? _studentBindingRefresh;
+  Timer? _studentBindingRefreshTimer;
+  final ValueNotifier<int> _availableStudentCount = ValueNotifier(0);
   String? _studentBindingStatusError;
   final Set<String> _linkedStudentMatriculas = {};
   final Map<String, Map<String, dynamic>> _cachedStudentBindings = {};
@@ -131,6 +137,8 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
           .whereType<String>()
           .where((matricula) => matricula.isNotEmpty),
     );
+    _availableStudentCount.value = _linkedStudentMatriculas.length;
+    _startStudentBindingRefreshTimer();
     _selectedClassroom = widget.grupo.classroom.trim().toUpperCase();
     WidgetsBinding.instance.addObserver(this);
     // Configurar status bar transparente
@@ -294,6 +302,8 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _studentBindingRefreshTimer?.cancel();
+    _availableStudentCount.dispose();
     _scrollController.removeListener(_scrollListener);
     _buttonAnimationController.dispose();
     _studentsAnimationController.dispose();
@@ -310,7 +320,14 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) {
+    _studentBindingsInForeground = state == AppLifecycleState.resumed;
+    if (state == AppLifecycleState.resumed) {
+      _startStudentBindingRefreshTimer();
+      if (_studentBindingStatusLoaded) {
+        unawaited(_refreshStudentBindingStatuses(force: true, silent: true));
+      }
+    } else {
+      _studentBindingRefreshTimer?.cancel();
       _bleBeaconService.cancelScan();
       _stopStudentBeaconScan();
     }
@@ -2075,147 +2092,192 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
     return uuid.replaceAll('-', '').trim().toLowerCase();
   }
 
-  Future<void> _refreshStudentBindingStatuses({bool force = false}) async {
-    if (_isLoadingStudentBindingStatus ||
-        (_studentBindingStatusLoaded && !force)) {
-      return;
-    }
-    final matriculas = widget.grupo.students
-        .map((student) => student.matricula?.trim().toUpperCase())
-        .whereType<String>()
-        .where((matricula) => matricula.isNotEmpty)
-        .toSet()
-        .toList();
-    if (matriculas.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _studentBindingStatusLoaded = true;
-          _studentBindingStatusError = null;
-        });
-      }
-      return;
-    }
-
-    setState(() {
-      _isLoadingStudentBindingStatus = true;
-      _studentBindingStatusLoaded = true;
-      _studentBindingStatusError = null;
-    });
-    final result = await _apiService.resolveStudentDeviceBindings(
-      matriculas: matriculas,
-    );
-    await result.fold(
-      (error) async {
-        if (!mounted) return;
-        setState(() {
-          _isLoadingStudentBindingStatus = false;
-          _studentBindingStatusLoaded = true;
-          _studentBindingStatusError = error;
-        });
-      },
-      (bindings) async {
-        await _authStorage.cacheResolvedStudentDeviceBindings(bindings);
-        if (!mounted) return;
-        setState(() {
-          _linkedStudentMatriculas
-            ..clear()
-            ..addAll(
-              widget.grupo.students
-                  .where(
-                    (student) => student.beaconUuid?.trim().isNotEmpty ?? false,
-                  )
-                  .map((student) => student.matricula?.trim().toUpperCase())
-                  .whereType<String>()
-                  .where((matricula) => matricula.isNotEmpty),
-            );
-          _loadCachedStudentBindings();
-          _isLoadingStudentBindingStatus = false;
-          _studentBindingStatusLoaded = true;
-          _studentBindingStatusError = null;
-        });
+  void _startStudentBindingRefreshTimer() {
+    _studentBindingRefreshTimer?.cancel();
+    final seconds = ApiConstants.studentBindingsRefreshSeconds;
+    _studentBindingRefreshTimer = Timer.periodic(
+      Duration(seconds: seconds > 0 ? seconds : 30),
+      (_) {
+        if (!mounted ||
+            !_studentBindingStatusLoaded ||
+            _isLoadingStudentBeaconBindings) {
+          return;
+        }
+        unawaited(_refreshStudentBindingStatuses(force: true, silent: true));
       },
     );
   }
 
-  Future<Map<String, String>> _loadStudentBeaconBindingsForScan() async {
-    final fallback = <String, String>{};
-    final studentKeysByMatricula = {
-      for (final alumno in widget.grupo.students)
-        if (alumno.matricula?.trim().isNotEmpty ?? false)
-          alumno.matricula!.trim().toUpperCase(): _alumnoKey(alumno),
-    };
-
-    for (final alumno in widget.grupo.students) {
-      final beaconUuid = alumno.beaconUuid;
-      final matricula = alumno.matricula?.trim().toUpperCase();
-      if (beaconUuid == null ||
-          beaconUuid.isEmpty ||
-          matricula == null ||
-          matricula.isEmpty) {
-        continue;
-      }
-      final normalized = _normalizeBeaconUuid(beaconUuid);
-      if (normalized.isEmpty) continue;
-      fallback[normalized] = _alumnoKey(alumno);
+  Future<void> _refreshStudentBindingStatuses({
+    bool force = false,
+    bool silent = false,
+  }) {
+    // El inicio del escáner y el temporizador comparten la misma consulta.
+    final pending = _studentBindingRefresh;
+    if (pending != null) return pending;
+    if (!mounted || (_studentBindingStatusLoaded && !force)) {
+      return Future<void>.value();
     }
+    final refresh = _fetchStudentBindingStatuses(silent: silent);
+    _studentBindingRefresh = refresh;
+    return refresh.whenComplete(() => _studentBindingRefresh = null);
+  }
 
-    _loadCachedStudentBindings();
-    for (final binding in _cachedStudentBindings.values) {
-      final matricula = binding['matricula']?.toString().trim().toUpperCase();
-      final beaconUuid = binding['attendanceUuid']?.toString();
-      final studentKey = matricula == null
-          ? null
-          : studentKeysByMatricula[matricula];
-      if (studentKey == null || beaconUuid == null || beaconUuid.isEmpty) {
-        continue;
-      }
-      final normalized = _normalizeBeaconUuid(beaconUuid);
-      if (normalized.isEmpty) continue;
-      fallback[normalized] = studentKey;
-    }
-
+  Future<void> _fetchStudentBindingStatuses({required bool silent}) async {
     final matriculas = widget.grupo.students
-        .map((alumno) => alumno.matricula?.trim().toUpperCase())
+        .map((student) => student.matricula?.trim().toUpperCase())
         .whereType<String>()
         .where((matricula) => matricula.isNotEmpty)
-        .toSet()
-        .toList();
-    if (matriculas.isEmpty) return fallback;
-
-    final result = await _apiService.resolveStudentDeviceBindings(
-      matriculas: matriculas,
-    );
-
-    return result.fold(
-      (error) async {
-        Logger.info('[StudentBeaconScan] Usando UUIDs cacheados: $error');
-        return fallback;
-      },
-      (bindings) async {
-        await _authStorage.cacheResolvedStudentDeviceBindings(bindings);
-        _loadCachedStudentBindings();
-        final resolved = Map<String, String>.from(fallback);
-
-        for (final binding in _cachedStudentBindings.values) {
-          final matricula = binding['matricula']?.toString();
-          final beaconUuid = binding['attendanceUuid']?.toString();
-          if (matricula == null ||
-              matricula.trim().isEmpty ||
-              beaconUuid == null ||
-              beaconUuid.isEmpty) {
-            continue;
+        .toSet();
+    setState(() {
+      _isLoadingStudentBindingStatus = !silent;
+      _studentBindingStatusLoaded = true;
+      if (!silent) _studentBindingStatusError = null;
+    });
+    try {
+      if (matriculas.isEmpty) return;
+      // La respuesta del servidor confirma que hay acceso a internet. Una
+      // caída de red conserva los vínculos y se reintenta en el siguiente tick.
+      final result = await _apiService.resolveStudentDeviceBindings(
+        matriculas: matriculas.toList(),
+      );
+      if (!mounted) return;
+      await result.fold(
+        (error) async {
+          if (!silent) setState(() => _studentBindingStatusError = error);
+        },
+        (bindings) async {
+          final resolved = <String, Map<String, dynamic>>{};
+          for (final binding in bindings) {
+            final matricula = binding['matricula']
+                ?.toString()
+                .trim()
+                .toUpperCase();
+            final uuid = binding['attendanceUuid']?.toString().trim();
+            final bindingId = binding['deviceBindingId']?.toString().trim();
+            if (!matriculas.contains(matricula) ||
+                uuid == null ||
+                uuid.isEmpty ||
+                bindingId == null ||
+                bindingId.isEmpty) {
+              continue;
+            }
+            resolved[matricula!] = binding;
           }
-          final studentKey =
-              studentKeysByMatricula[matricula.trim().toUpperCase()];
-          if (studentKey == null || studentKey.isEmpty) continue;
-          final normalized = _normalizeBeaconUuid(beaconUuid);
-          if (normalized.isEmpty) continue;
-          resolved[normalized] = studentKey;
-        }
+          // Aplicar la respuesta también en memoria: el escáner no depende de
+          // que el almacenamiento local termine para reconocer alumnos nuevos.
+          setState(() {
+            _cachedStudentBindings
+              ..clear()
+              ..addAll(resolved);
+            _linkedStudentMatriculas
+              ..clear()
+              ..addAll(resolved.keys);
+            _hasResolvedStudentBindings = true;
+            _studentBindingStatusError = null;
+          });
+          _availableStudentCount.value = _linkedStudentMatriculas.length;
+          await _updateActiveStudentScanBindings();
+          await _authStorage.cacheResolvedStudentDeviceBindings(
+            resolved.values.toList(),
+            requestedMatriculas: matriculas,
+          );
+        },
+      );
+    } catch (error, stackTrace) {
+      Logger.error(
+        'No se pudieron actualizar los vínculos de alumnos',
+        error,
+        stackTrace,
+      );
+      if (mounted && !silent) {
+        setState(() => _studentBindingStatusError = error.toString());
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingStudentBindingStatus = false);
+    }
+  }
 
-        return resolved.isEmpty ? fallback : resolved;
-      },
-    );
+  Map<String, String> _studentBeaconBindings() {
+    final byMatricula = <String, String>{};
+    if (!_hasResolvedStudentBindings) {
+      for (final student in widget.grupo.students) {
+        final matricula = student.matricula?.trim().toUpperCase();
+        final uuid = student.beaconUuid?.trim();
+        if (matricula != null &&
+            matricula.isNotEmpty &&
+            uuid != null &&
+            uuid.isNotEmpty) {
+          byMatricula[matricula] = uuid;
+        }
+      }
+    }
+    for (final entry in _cachedStudentBindings.entries) {
+      final uuid = entry.value['attendanceUuid']?.toString().trim();
+      if (uuid != null && uuid.isNotEmpty) byMatricula[entry.key] = uuid;
+    }
+    return {
+      for (final student in widget.grupo.students)
+        if (byMatricula.containsKey(student.matricula?.trim().toUpperCase()))
+          _normalizeBeaconUuid(
+            byMatricula[student.matricula!.trim().toUpperCase()]!,
+          ): _alumnoKey(
+            student,
+          ),
+    };
+  }
+
+  Map<String, StudentAttendanceGattConfirmation> _studentScanConfirmations(
+    Map<String, String> bindings,
+  ) {
+    final studentsByKey = {
+      for (final student in widget.grupo.students) _alumnoKey(student): student,
+    };
+    return {
+      for (final binding in bindings.entries)
+        binding.key: StudentAttendanceGattConfirmation(
+          matricula: studentsByKey[binding.value]!.matricula!,
+          materia: widget.grupo.subject,
+          dia: _selectedDateTime,
+        ),
+    };
+  }
+
+  Future<void> _updateActiveStudentScanBindings() async {
+    if (!mounted ||
+        !_studentBindingsInForeground ||
+        !_isStudentBeaconScanning ||
+        _isLoadingStudentBeaconBindings) {
+      return;
+    }
+    final bindings = _studentBeaconBindings();
+    if (mapEquals(bindings, _studentKeyByBeaconUuid)) return;
+    final generation = _studentScanGeneration;
+    final previous = _studentKeyByBeaconUuid;
+    // Registrar el mapa antes de que el canal nativo pueda emitir detecciones.
+    _studentKeyByBeaconUuid = bindings;
+    try {
+      final updated = await _studentBeaconService.updateBindings(
+        confirmationsByUuid: _studentScanConfirmations(bindings),
+      );
+      if (!updated) {
+        throw StateError('El escáner no aceptó los vínculos actualizados');
+      }
+    } catch (error, stackTrace) {
+      if (mounted && generation == _studentScanGeneration) {
+        _studentKeyByBeaconUuid = previous;
+      }
+      Logger.error(
+        'No se pudieron actualizar los UUIDs del escáner',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
+  Future<Map<String, String>> _loadStudentBeaconBindingsForScan() async {
+    await _refreshStudentBindingStatuses(force: true, silent: true);
+    return _studentBeaconBindings();
   }
 
   Future<bool> _startStudentBeaconScan() async {
@@ -2257,27 +2319,8 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
       return false;
     }
 
-    final studentsByKey = {
-      for (final student in widget.grupo.students) _alumnoKey(student): student,
-    };
-    final attendanceDay = DateTime(
-      _selectedDateTime.year,
-      _selectedDateTime.month,
-      _selectedDateTime.day,
-    );
-    final confirmationsByUuid = <String, StudentAttendanceGattConfirmation>{};
-    final scannableBindings = <String, String>{};
-    for (final binding in bindings.entries) {
-      final student = studentsByKey[binding.value];
-      final matricula = student?.matricula?.trim().toUpperCase();
-      if (matricula == null || matricula.isEmpty) continue;
-      scannableBindings[binding.key] = binding.value;
-      confirmationsByUuid[binding.key] = StudentAttendanceGattConfirmation(
-        matricula: matricula,
-        materia: widget.grupo.subject,
-        dia: attendanceDay,
-      );
-    }
+    final confirmationsByUuid = _studentScanConfirmations(bindings);
+    final scannableBindings = bindings;
 
     if (confirmationsByUuid.isEmpty) {
       setState(() {
@@ -2400,6 +2443,9 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
 
   Future<void> _stopStudentBeaconScan() async {
     _studentScanGeneration++;
+    // Bloquear actualizaciones del temporizador desde el inicio del cierre.
+    _isStudentBeaconScanning = false;
+    _isLoadingStudentBeaconBindings = false;
     await _studentBeaconSubscription?.cancel();
     _studentBeaconSubscription = null;
     await _studentDetectionQueue;
@@ -2880,14 +2926,6 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
       _studentDetectionOrder.value = currentOrder;
     }
 
-    final availableStudentCount = _linkedStudentMatriculas.isNotEmpty
-        ? _linkedStudentMatriculas.length
-        : widget.grupo.students
-              .where(
-                (student) => student.beaconUuid?.trim().isNotEmpty ?? false,
-              )
-              .length;
-
     await Navigator.of(context).push<void>(
       PageRouteBuilder<void>(
         fullscreenDialog: true,
@@ -2901,7 +2939,8 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
               gradientColors: widget.gradientColors,
               subject: widget.grupo.subject,
               groupLabel: widget.grupo.grupoLetra,
-              availableStudentCount: availableStudentCount,
+              availableStudentCount: _availableStudentCount.value,
+              availableStudentCountListenable: _availableStudentCount,
               onStart: _startStudentBeaconScan,
               onStop: _stopStudentBeaconScan,
             ),
