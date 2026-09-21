@@ -4,6 +4,7 @@ import '../models/attendance_history_entry.dart';
 import '../services/local_storage_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/subject_name.dart';
+import '../widgets/app_page_header.dart';
 
 class HistoryScreen extends StatefulWidget {
   final LocalStorageService storage;
@@ -29,42 +30,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final content = ColoredBox(
       color: palette.background,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'TU VIDA EN EL CAMPUS',
-              style: TextStyle(
-                color: palette.muted,
-                fontSize: 10,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Historial',
-              style: TextStyle(
-                color: palette.ink,
-                fontSize: 26,
-                height: 1.23,
-                letterSpacing: -.7,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              entries.isEmpty
+            AppPageHeader(
+              eyebrow: 'Tu actividad',
+              title: 'Historial',
+              subtitle: entries.isEmpty
                   ? 'Tus asistencias aparecerán aquí'
                   : '${entries.length} ${entries.length == 1 ? 'asistencia registrada' : 'asistencias registradas'}',
-              style: TextStyle(
-                color: palette.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             Expanded(
               child: RefreshIndicator(
                 color: palette.accent,

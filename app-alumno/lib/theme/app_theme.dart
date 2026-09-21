@@ -1,24 +1,26 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
-  // Presencia design tokens shared by the student dashboard.
-  static const navy = Color(0xFF003B5C);
-  static const navySoft = Color(0xFF174D6B);
-  static const background = Color(0xFFF7F8FA);
-  static const border = Color(0xFFDCE5EA);
-  static const muted = Color(0xFF607382);
-  static const steel = Color(0xFFB5CBD9);
-  static const apricot = Color(0xFFFFBA82);
-  static const action = Color(0xFFB94F00);
-  static const pale = Color(0xFFFFF0E4);
-  static const green = Color(0xFF18764A);
-  static const mint = Color(0xFFE5F3EB);
-  static const brandRed = Color(0xFFD01018);
-  static const brandRedDark = Color(0xFFE00E17);
-  static const indigo = Color(0xFF1D10D0);
-  static const indigoDark = Color(0xFF3324F2);
-  static const orange = Color(0xFFE8800F);
-  static const success = Color(0xFF16A34A);
+  // RGB sampled from the supplied UAT identity reference (screen approximations).
+  static const uatOrange = Color(0xFFCF5F2B); // Pantone 159 C
+  static const uatTerracotta = Color(0xFFBA4B2A); // Pantone 1525 C
+  static const uatGray = Color(0xFF55575B); // Pantone Cool Gray 11 C
+  static const uatBlue = Color(0xFF003E5B); // Pantone 302 C
+
+  // Institutional tints mixed with white.
+  static const orange60 = Color(0xFFE29F80);
+  static const orange40 = Color(0xFFECBFAA);
+  static const terracotta40 = Color(0xFFE3B7AA);
+  static const gray40 = Color(0xFFBBBCBD);
+  static const gray20 = Color(0xFFDDDDDE);
+  static const blue80 = Color(0xFF33657C);
+  static const blue40 = Color(0xFF99B2BD);
+  static const blue20 = Color(0xFFCCD8DE);
+
+  // Subtle neutral and tinted surfaces keep small accent labels legible.
+  static const background = Color(0xFFF7F7F5);
+  static const orangeSurface = Color(0xFFFBF2EE);
+  static const terracottaSurface = Color(0xFFFBF1EE);
 }
 
 abstract final class AppSpacing {
@@ -63,49 +65,50 @@ class AppPalette {
   static const light = AppPalette(
     background: AppColors.background,
     surface: Colors.white,
-    ink: AppColors.navy,
-    muted: AppColors.muted,
-    border: AppColors.border,
-    header: AppColors.navy,
-    headerSoft: AppColors.navySoft,
-    headerMuted: AppColors.steel,
-    headerAccent: AppColors.apricot,
-    accent: AppColors.action,
-    accentSurface: AppColors.pale,
-    success: Color(0xFF146B43),
-    successSurface: Color(0xFFE8F5ED),
-    warning: Color(0xFF895900),
-    warningSurface: Color(0xFFFFF3D9),
-    freeSurface: Color(0xFFEAF1F5),
+    ink: Color(0xFF252629),
+    muted: AppColors.uatGray,
+    border: AppColors.gray20,
+    header: AppColors.uatBlue,
+    headerSoft: AppColors.blue80,
+    headerMuted: AppColors.blue20,
+    headerAccent: AppColors.orange40,
+    accent: AppColors.uatTerracotta,
+    accentSurface: AppColors.orangeSurface,
+    success: AppColors.uatBlue,
+    successSurface: AppColors.blue20,
+    warning: AppColors.uatTerracotta,
+    warningSurface: AppColors.terracottaSurface,
+    freeSurface: Color(0xFFEEEEEF),
   );
 
   static const dark = AppPalette(
-    background: Color(0xFF101B22),
-    surface: Color(0xFF192B35),
-    ink: Color(0xFFF3F8FA),
-    muted: Color(0xFFADC1CB),
-    border: Color(0xFF36505E),
-    header: Color(0xFF082D42),
-    headerSoft: Color(0xFF1A4B61),
-    headerMuted: Color(0xFFB2CCD8),
-    headerAccent: Color(0xFFFFD3A6),
-    accent: Color(0xFFFFBC80),
-    accentSurface: Color(0xFF443428),
-    success: Color(0xFF8CE4B2),
-    successSurface: Color(0xFF1B3A32),
-    warning: Color(0xFFFFD47C),
-    warningSurface: Color(0xFF473B28),
-    freeSurface: Color(0xFF253A46),
+    background: Color(0xFF161617),
+    surface: Color(0xFF232325),
+    ink: Color(0xFFF3F3F3),
+    muted: AppColors.gray40,
+    border: Color(0xFF37383A),
+    header: AppColors.uatBlue,
+    headerSoft: AppColors.blue80,
+    headerMuted: AppColors.blue20,
+    headerAccent: AppColors.orange40,
+    accent: AppColors.orange60,
+    accentSurface: Color(0xFF382A25),
+    success: AppColors.blue40,
+    successSurface: Color(0xFF20313B),
+    warning: AppColors.terracotta40,
+    warningSurface: Color(0xFF392A26),
+    freeSurface: Color(0xFF2A2B2D),
   );
 }
 
 ThemeData buildAppTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final background = dark ? AppPalette.dark.background : Colors.white;
-  final surface = dark ? AppPalette.dark.surface : const Color(0xFFF7F7F7);
-  final text = dark ? AppPalette.dark.ink : const Color(0xFF1E1E1F);
-  final muted = dark ? AppPalette.dark.muted : const Color(0xFF78787A);
-  final border = dark ? AppPalette.dark.border : const Color(0xFFDDDDDE);
+  final palette = dark ? AppPalette.dark : AppPalette.light;
+  final background = palette.background;
+  final surface = palette.surface;
+  final text = palette.ink;
+  final muted = palette.muted;
+  final border = palette.border;
 
   return ThemeData(
     useMaterial3: true,
@@ -113,11 +116,27 @@ ThemeData buildAppTheme(Brightness brightness) {
     brightness: brightness,
     scaffoldBackgroundColor: background,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: dark ? AppColors.brandRedDark : AppColors.brandRed,
+      seedColor: AppColors.uatOrange,
       brightness: brightness,
-      primary: dark ? AppColors.brandRedDark : AppColors.brandRed,
-      secondary: dark ? AppColors.indigoDark : AppColors.indigo,
+      primary: palette.accent,
+      onPrimary: dark ? palette.background : Colors.white,
+      primaryContainer: palette.accentSurface,
+      onPrimaryContainer: palette.accent,
+      secondary: palette.success,
+      onSecondary: dark ? palette.background : Colors.white,
+      secondaryContainer: palette.successSurface,
+      onSecondaryContainer: palette.success,
+      tertiary: palette.warning,
+      onTertiary: dark ? palette.background : Colors.white,
+      tertiaryContainer: palette.warningSurface,
+      onTertiaryContainer: palette.warning,
+      error: palette.warning,
+      onError: dark ? palette.background : Colors.white,
+      errorContainer: palette.warningSurface,
+      onErrorContainer: palette.warning,
       surface: surface,
+      onSurface: text,
+      outline: border,
     ),
     textTheme: TextTheme(
       headlineSmall: TextStyle(
@@ -154,7 +173,7 @@ ThemeData buildAppTheme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: dark ? AppPalette.dark.surface : const Color(0xFFF0F0F0),
+      fillColor: palette.freeSurface,
       constraints: const BoxConstraints(minHeight: 52),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
@@ -163,7 +182,7 @@ ThemeData buildAppTheme(Brightness brightness) {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.brandRed, width: 1.5),
+        borderSide: BorderSide(color: palette.accent, width: 1.5),
       ),
     ),
   );

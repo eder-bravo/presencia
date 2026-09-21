@@ -166,17 +166,21 @@ class _SetupScreenState extends State<SetupScreen> {
                                     backgroundColor: Theme.of(
                                       context,
                                     ).colorScheme.primary,
-                                    foregroundColor: Colors.white,
+                                    foregroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16),
                                     ),
                                   ),
                                   child: _loading
-                                      ? const SizedBox(
+                                      ? SizedBox(
                                           width: 22,
                                           height: 22,
                                           child: CircularProgressIndicator(
-                                            color: Colors.white,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimary,
                                             strokeWidth: 2.4,
                                           ),
                                         )
@@ -218,9 +222,9 @@ class _BrandHeader extends StatelessWidget {
             color: Theme.of(context).colorScheme.primary,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.school_rounded,
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.onPrimary,
             size: 26,
           ),
         ),

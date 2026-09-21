@@ -278,10 +278,8 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceColor = dark ? const Color(0xFF1E1E22) : Colors.white;
-    final borderColor = dark
-        ? const Color(0xFF2C2C32)
-        : const Color(0xFFE5E7EB);
+    final surfaceColor = AppPalette.of(context).surface;
+    final borderColor = AppPalette.of(context).border;
 
     return Container(
       decoration: BoxDecoration(
@@ -386,13 +384,13 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           margin: const EdgeInsets.only(top: 8, bottom: 16),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.orange.withValues(alpha: .12),
+            color: AppPalette.of(context).warningSurface,
             border: Border.all(
-              color: Colors.orange.withValues(alpha: .32),
+              color: AppPalette.of(context).warning.withValues(alpha: .32),
               width: 2,
             ),
           ),
-          child: Icon(icon, color: Colors.orange, size: 40),
+          child: Icon(icon, color: AppPalette.of(context).warning, size: 40),
         ),
         Text(
           title,
@@ -410,7 +408,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           style: TextStyle(
             fontSize: 13,
             height: 1.4,
-            color: dark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+            color: AppPalette.of(context).muted,
           ),
         ),
         const SizedBox(height: 24),
@@ -435,7 +433,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                 onPressed: _handleRequirementAction,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
-                  backgroundColor: const Color(0xFFD65F05),
+                  backgroundColor: AppPalette.of(context).accent,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -453,9 +451,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
   // ESTADO: ESCANEANDO / CARGANDO
   // ==========================================
   Widget _buildScanningState(BuildContext context, bool dark) {
-    final primaryColor = dark
-        ? const Color(0xFF5DC2F0)
-        : const Color(0xFFD65F05);
+    final primaryColor = AppPalette.of(context).accent;
     final subjectName = subjectDisplayName(
       widget.currentOccurrence?.entry.subject,
       fallback: 'Clase actual',
@@ -519,9 +515,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                 height: 92,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: dark
-                      ? const Color(0xFF26262B)
-                      : const Color(0xFFF3F4F6),
+                  color: AppPalette.of(context).freeSurface,
                   boxShadow: [
                     BoxShadow(
                       color: primaryColor.withValues(alpha: .2),
@@ -569,7 +563,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
-            color: dark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+            color: AppPalette.of(context).muted,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -581,11 +575,9 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: dark ? const Color(0xFF26262B) : const Color(0xFFF9FAFB),
+            color: AppPalette.of(context).freeSurface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: dark ? const Color(0xFF374151) : const Color(0xFFE5E7EB),
-            ),
+            border: Border.all(color: AppPalette.of(context).border),
           ),
           child: Row(
             children: [
@@ -627,9 +619,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: dark
-                            ? const Color(0xFF9CA3AF)
-                            : const Color(0xFF6B7280),
+                        color: AppPalette.of(context).muted,
                       ),
                     ),
                   ],
@@ -648,9 +638,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           child: TextButton(
             onPressed: _cancel,
             style: TextButton.styleFrom(
-              foregroundColor: dark
-                  ? const Color(0xFF9CA3AF)
-                  : const Color(0xFF6B7280),
+              foregroundColor: AppPalette.of(context).muted,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -669,8 +657,8 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
   // ESTADO: TIEMPO AGOTADO / NO SE PUDO
   // ==========================================
   Widget _buildTimeoutState(BuildContext context, bool dark) {
-    const errorColor = Color(0xFFEF4444);
-    const retryColor = Color(0xFFD65F05);
+    final errorColor = Theme.of(context).colorScheme.error;
+    final retryColor = AppPalette.of(context).accent;
 
     return Column(
       key: const ValueKey('attendance_state_timeout'),
@@ -689,11 +677,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
               width: 2,
             ),
           ),
-          child: const Icon(
-            Icons.timer_off_rounded,
-            color: errorColor,
-            size: 40,
-          ),
+          child: Icon(Icons.timer_off_rounded, color: errorColor, size: 40),
         ),
 
         Text(
@@ -715,7 +699,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
             style: TextStyle(
               fontSize: 13,
               height: 1.4,
-              color: dark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+              color: AppPalette.of(context).muted,
             ),
           ),
         ),
@@ -732,11 +716,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                   key: const Key('attendance_timeout_cancel_button'),
                   onPressed: _cancel,
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(
-                      color: dark
-                          ? const Color(0xFF374151)
-                          : const Color(0xFFD1D5DB),
-                    ),
+                    side: BorderSide(color: AppPalette.of(context).border),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -766,7 +746,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: retryColor,
-                    foregroundColor: Colors.white,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -782,10 +762,11 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
   }
 
   // ==========================================
-  // ESTADO: ÉXITO (VERDE + CHECK + MATERIA)
+  // ESTADO: ÉXITO (CHECK + MATERIA)
   // ==========================================
   Widget _buildSuccessState(BuildContext context, bool dark) {
-    const successColor = AppColors.success;
+    final palette = AppPalette.of(context);
+    final successColor = palette.success;
     final subjectName = subjectDisplayName(
       _confirmedData?.materia ??
           _confirmedData?.className ??
@@ -803,7 +784,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
       key: const ValueKey('attendance_state_success'),
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Badge animado verde con icono de check
+        // Badge animado con icono de check
         Container(
           width: 86,
           height: 86,
@@ -823,10 +804,10 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
               ),
             ],
           ),
-          child: const Center(
+          child: Center(
             child: Icon(
               Icons.check_circle_rounded,
-              key: Key('attendance_success_check_icon'),
+              key: const Key('attendance_success_check_icon'),
               color: successColor,
               size: 52,
             ),
@@ -840,7 +821,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w800,
             fontSize: 20,
-            color: dark ? Colors.white : const Color(0xFF111827),
+            color: palette.ink,
           ),
         ),
         const SizedBox(height: 14),
@@ -850,7 +831,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           decoration: BoxDecoration(
-            color: successColor.withValues(alpha: dark ? .18 : .08),
+            color: palette.successSurface,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: successColor.withValues(alpha: .35),
@@ -865,9 +846,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: dark
-                      ? const Color(0xFF86EFAC)
-                      : const Color(0xFF15803D),
+                  color: successColor,
                   letterSpacing: .5,
                 ),
               ),
@@ -879,7 +858,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
-                  color: dark ? Colors.white : const Color(0xFF14532D),
+                  color: palette.ink,
                 ),
               ),
               if ((classroom != null && classroom.isNotEmpty) ||
@@ -894,9 +873,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: dark
-                        ? const Color(0xFFBBF7D0)
-                        : const Color(0xFF166534),
+                    color: successColor,
                   ),
                 ),
               ],
@@ -913,7 +890,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox.square(
+              SizedBox.square(
                 dimension: 14,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
@@ -926,9 +903,7 @@ class _AttendanceBottomSheetState extends State<AttendanceBottomSheet>
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: dark
-                      ? const Color(0xFF9CA3AF)
-                      : const Color(0xFF6B7280),
+                  color: AppPalette.of(context).muted,
                 ),
               ),
             ],

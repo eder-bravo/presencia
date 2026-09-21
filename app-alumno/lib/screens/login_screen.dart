@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../services/local_storage_service.dart';
 import '../services/student_auth_service.dart';
+import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -122,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: dark ? const Color(0xFF141415) : Colors.white,
+      backgroundColor: AppPalette.of(context).background,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, viewport) => Center(
@@ -230,7 +230,7 @@ class _BrandHeader extends StatelessWidget {
       const SizedBox(height: 12),
       Text(
         'Presencia: Alumnos',
-        style: GoogleFonts.poppins(
+        style: TextStyle(
           fontSize: 23,
           fontWeight: FontWeight.w600,
           color: Theme.of(context).textTheme.headlineSmall?.color,
@@ -239,7 +239,7 @@ class _BrandHeader extends StatelessWidget {
       const SizedBox(height: 3),
       Text(
         'Gestión Escolar · Facultad de Ingeniería',
-        style: GoogleFonts.sourceSans3(
+        style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
           color: Theme.of(context).textTheme.labelSmall?.color,
@@ -285,7 +285,7 @@ class _LoginCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF303031) : const Color(0xFFF9F9F9),
+        color: AppPalette.of(context).surface,
         borderRadius: BorderRadius.circular(20),
         boxShadow: dark
             ? null
@@ -369,17 +369,17 @@ class _LoginCard extends StatelessWidget {
               onPressed: loading ? null : onSubmit,
               style: FilledButton.styleFrom(
                 backgroundColor: theme.colorScheme.primary,
-                foregroundColor: Colors.white,
+                foregroundColor: theme.colorScheme.onPrimary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
                 ),
               ),
               child: loading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                        color: Colors.white,
+                        color: theme.colorScheme.onPrimary,
                         strokeWidth: 2.4,
                       ),
                     )
@@ -402,7 +402,7 @@ class _FieldLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     text,
-    style: GoogleFonts.sourceSans3(
+    style: TextStyle(
       fontSize: 11,
       fontWeight: FontWeight.w600,
       color: Theme.of(context).textTheme.bodyLarge?.color,

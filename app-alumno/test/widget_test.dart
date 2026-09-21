@@ -159,8 +159,8 @@ void main() {
     );
 
     expect(tester.getSize(find.byType(IndexedStack)).height, greaterThan(300));
-    expect(find.text('HOLA, ALUMNO'), findsOneWidget);
-    expect(find.text('Tu día'), findsOneWidget);
+    expect(find.text('Hola, Alumno.'), findsOneWidget);
+    expect(find.text('Inicio'), findsOneWidget);
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).bottomNavigationBar,
       isNotNull,
@@ -168,20 +168,17 @@ void main() {
 
     expect(find.text('Tus clases'), findsNothing);
     expect(find.text('Ver semana'), findsNothing);
-    expect(find.text('Tu día:'), findsOneWidget);
+    expect(find.text('Registrar asistencia').hitTestable(), findsOneWidget);
 
     await tester.tap(find.text('Horario'));
     await tester.pump();
     expect(find.text('Mi horario'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Volver al inicio'));
-    await tester.pump();
-    expect(find.text('HOLA, ALUMNO'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
 
     await tester.tap(find.text('Historial'));
     await tester.pump();
     expect(find.text('Tus asistencias aparecerán aquí'), findsOneWidget);
-    await tester.tap(find.text('Tu día'));
+    await tester.tap(find.text('Inicio'));
     await tester.pump();
 
     await tester.tap(find.byTooltip('Abrir perfil'));
@@ -191,14 +188,14 @@ void main() {
       tester
           .widget<ColoredBox>(find.byKey(const Key('profile-page-background')))
           .color,
-      const Color(0xFFF7F8FA),
+      AppPalette.light.background,
     );
     final avatar = tester.widget<Container>(
       find.byKey(const Key('profile-avatar')),
     );
     expect(
       (avatar.decoration! as BoxDecoration).color,
-      const Color(0xFF003B5C),
+      AppPalette.light.accent,
     );
     expect(tester.takeException(), isNull);
   });
@@ -298,7 +295,7 @@ void main() {
       tester
           .widget<ColoredBox>(find.byKey(const Key('full-schedule-background')))
           .color,
-      const Color(0xFFF7F8FA),
+      AppPalette.light.background,
     );
     expect(tester.takeException(), isNull);
   });
@@ -366,13 +363,21 @@ void main() {
       ),
     );
 
-    await tester.ensureVisible(
+    final homeScroll = find
+        .descendant(
+          of: find.byKey(const Key('attendance-class-list')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
       find.byKey(const ValueKey('attendance-class-1')),
+      -100,
+      scrollable: homeScroll,
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attendance-class-1')));
     await tester.pumpAndSettle();
-    expect(find.text('Hora libre'), findsNWidgets(2));
-    expect(find.text('00:01–00:31'), findsOneWidget);
+    expect(find.text('Un respiro entre clases.'), findsWidgets);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, 'Hora libre'))
@@ -380,59 +385,31 @@ void main() {
       isNull,
     );
 
-    await tester.ensureVisible(
+    await tester.scrollUntilVisible(
       find.byKey(const ValueKey('attendance-class-2')),
+      150,
+      scrollable: homeScroll,
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attendance-class-2')));
     await tester.pumpAndSettle();
-    expect(find.text('Aula 102'), findsOneWidget);
+    final actionBar = find.byKey(const Key('attendance-action-bar'));
     expect(
-      tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Registrar asistencia'),
-          )
-          .onPressed,
-      isNotNull,
+      find.descendant(of: actionBar, matching: find.text('Materia nocturna')),
+      findsOneWidget,
     );
-    expect(
-      tester.getSize(find.byKey(const ValueKey('attendance-class-1'))).height,
-      tester.getSize(find.byKey(const ValueKey('attendance-class-2'))).height,
-    );
-    final currentCard = tester.widget<Container>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('attendance-class-2')),
-            matching: find.byKey(const Key('attendance-card-surface')),
-          )
-          .first,
-    );
-    expect(
-      (currentCard.decoration! as BoxDecoration).color,
-      AppPalette.light.surface,
-    );
+    expect(find.text('Registrar asistencia').hitTestable(), findsOneWidget);
 
-    await tester.drag(
-      find.byKey(const Key('attendance-class-list')),
-      const Offset(0, 360),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      (tester
-                  .widget<AnimatedContainer>(
-                    find.byKey(const ValueKey('attendance-selection-0')),
-                  )
-                  .decoration!
-              as BoxDecoration)
-          .color,
-      AppPalette.light.accent,
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('attendance-class-0')),
+      -100,
+      scrollable: homeScroll,
     );
     final missedCard = tester.widget<Container>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('attendance-class-0')),
-            matching: find.byKey(const Key('attendance-card-surface')),
-          )
-          .first,
+      find.descendant(
+        of: find.byKey(const ValueKey('attendance-class-0')),
+        matching: find.byKey(const Key('attendance-card-surface')),
+      ),
     );
     expect(
       (missedCard.decoration! as BoxDecoration).color,
@@ -566,7 +543,7 @@ void main() {
     );
     expect(
       tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-      AppPalette.dark.header,
+      AppPalette.dark.background,
     );
     await tester.tap(find.text('Horario'));
     await tester.pump();
@@ -585,7 +562,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('today snaps equal cards with a small selection marker', (
+  testWidgets('selecting an agenda class updates the attendance action', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(390, 780);
@@ -634,51 +611,44 @@ void main() {
     await tester.pump();
 
     final list = find.byKey(const Key('attendance-class-list'));
-    expect(list, findsOneWidget);
-    expect(tester.widget<ListView>(list).scrollDirection, Axis.vertical);
-    expect(find.byType(PageView), findsNothing);
-
-    final first = find.byKey(const ValueKey('attendance-class-0'));
-    final second = find.byKey(const ValueKey('attendance-class-1'));
-    final third = find.byKey(const ValueKey('attendance-class-2'));
-    expect(tester.getSize(first).height, 158);
-    expect(tester.getSize(second).height, 158);
-
-    await tester.tap(second);
+    final actionBar = find.byKey(const Key('attendance-action-bar'));
+    expect(
+      find.descendant(of: actionBar, matching: find.text('Materia 1')),
+      findsOneWidget,
+    );
+    final register = find.widgetWithText(FilledButton, 'Registrar asistencia');
+    final buttonPosition = tester.getTopLeft(register);
+    expect(register.hitTestable(), findsOneWidget);
+    expect(
+      tester.getBottomLeft(register).dy,
+      lessThan(tester.getTopLeft(find.text('Inicio')).dy),
+    );
+    final scrollable = find
+        .descendant(of: list, matching: find.byType(Scrollable))
+        .first;
+    final fifth = find.byKey(const ValueKey('attendance-class-4'));
+    await tester.scrollUntilVisible(fifth, 180, scrollable: scrollable);
     await tester.pumpAndSettle();
-    expect(tester.getSize(third).height, 158);
-    final selectedMarker = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('attendance-selection-1')),
-    );
-    final otherMarker = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('attendance-selection-0')),
-    );
-    expect(
-      (selectedMarker.decoration! as BoxDecoration).color,
-      AppPalette.light.accent,
-    );
-    expect(
-      (otherMarker.decoration! as BoxDecoration).color,
-      Colors.transparent,
-    );
-    expect(tester.getSize(second).height, tester.getSize(first).height);
-
-    final secondTop = tester.getTopLeft(second).dy;
-    await tester.drag(list, const Offset(0, -120));
+    final scrollOffset = tester
+        .widget<CustomScrollView>(list)
+        .controller!
+        .offset;
+    expect(scrollOffset, greaterThan(0));
+    expect(tester.getTopLeft(register), buttonPosition);
+    expect(register.hitTestable(), findsOneWidget);
+    await tester.tap(fifth);
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(second).dy, lessThan(secondTop));
-    expect(tester.widget<ListView>(list).controller!.offset, closeTo(340, 1));
     expect(
-      (tester
-                  .widget<AnimatedContainer>(
-                    find.byKey(const ValueKey('attendance-selection-2')),
-                  )
-                  .decoration!
-              as BoxDecoration)
-          .color,
-      AppPalette.light.accent,
+      find.descendant(of: actionBar, matching: find.text('Materia 5')),
+      findsOneWidget,
     );
-    expect(tester.getSize(second).height, 158);
+    expect(register.hitTestable(), findsOneWidget);
+    expect(tester.getTopLeft(register), buttonPosition);
+    expect(
+      tester.widget<CustomScrollView>(list).controller!.offset,
+      scrollOffset,
+    );
+
     expect(tester.takeException(), isNull);
   });
 
@@ -734,21 +704,28 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(CustomScrollView), findsNothing);
-      expect(find.text('Arquitectura móvil'), findsOneWidget);
-      expect(
-        find.text('Clase terminada · registro disponible'),
-        findsOneWidget,
+      expect(find.text('Arquitectura móvil'), findsWidgets);
+      final register = find.widgetWithText(
+        FilledButton,
+        'Registrar asistencia',
       );
-      expect(find.byKey(const Key('day-finished-banner')), findsOneWidget);
+      expect(tester.widget<FilledButton>(register).onPressed, isNotNull);
+      expect(register.hitTestable(), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('day-finished-banner')),
+        150,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const Key('attendance-class-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(
         find.text('Jornada terminada · El registro sigue disponible'),
         findsOneWidget,
       );
-      final registerButton = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Registrar asistencia'),
-      );
-      expect(registerButton.onPressed, isNotNull);
+
       expect(tester.takeException(), isNull);
     },
   );

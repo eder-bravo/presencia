@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,7 @@ import '../services/student_auth_service.dart';
 import '../services/student_device_binding_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/subject_name.dart';
+import '../widgets/app_page_header.dart';
 import 'attendance_bottom_sheet.dart';
 import 'history_screen.dart';
 
@@ -506,6 +508,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onSelectClass: (index) => setState(() => _selectedClass = index),
         onRegister: _openAttendanceSheet,
         onOpenProfile: () => setState(() => _selectedTab = 3),
+        onOpenSchedule: () => setState(() => _selectedTab = 1),
+        onOpenHistory: () => setState(() => _selectedTab = 2),
+        onRefresh: _syncAcademicInfo,
+        errorMessage: _academicSyncError,
       ),
       _SchedulePage(
         schedule: _schedule,
@@ -513,7 +519,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         loading: _isSyncingAcademicInfo,
         errorMessage: _academicSyncError,
         onRetry: _syncAcademicInfo,
-        onBack: () => setState(() => _selectedTab = 0),
       ),
       HistoryScreen(storage: widget.storage, embedded: true),
       _ProfilePage(
@@ -527,13 +532,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         lastSyncedAt: _lastSuccessfulSync,
         onLogout: _confirmLogout,
         isLoggingOut: _isLoggingOut,
-        onBack: () => setState(() => _selectedTab = 0),
       ),
     ];
     return Scaffold(
-      backgroundColor: _selectedTab == 0
-          ? AppPalette.of(context).header
-          : AppPalette.of(context).background,
+      backgroundColor: AppPalette.of(context).background,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -541,16 +543,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (widget.demoMode)
               Container(
                 width: double.infinity,
-                color: const Color(0xFFF59E0B),
+                color: AppPalette.of(context).warningSurface,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 8,
                 ),
-                child: const Text(
+                child: Text(
                   'MODO DE PRUEBA · Información de ejemplo',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Color(0xFF451A03),
+                    color: AppPalette.of(context).warning,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                   ),
@@ -567,18 +569,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
-      bottomNavigationBar: _selectedTab == 3
-          ? null
-          : ColoredBox(
-              color: AppPalette.of(context).surface,
-              child: SafeArea(
-                top: false,
-                child: _PresenciaBottomNav(
-                  selectedTab: _selectedTab,
-                  onSelect: (index) => setState(() => _selectedTab = index),
-                ),
-              ),
-            ),
+      bottomNavigationBar: ColoredBox(
+        color: AppPalette.of(context).background,
+        child: SafeArea(
+          top: false,
+          child: _PresenciaBottomNav(
+            selectedTab: _selectedTab,
+            onSelect: (index) => setState(() => _selectedTab = index),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -598,6 +598,10 @@ class _AttendancePage extends StatefulWidget {
     required this.onSelectClass,
     required this.onRegister,
     required this.onOpenProfile,
+    required this.onOpenSchedule,
+    required this.onOpenHistory,
+    required this.onRefresh,
+    required this.errorMessage,
   });
   final StudentAcademicProfile profile;
   final int selectedClass;
@@ -605,412 +609,632 @@ class _AttendancePage extends StatefulWidget {
   final bool scheduleLoading;
   final bool isActive, isChecking, confirmed, hasError;
   final List<AttendanceHistoryEntry> attendanceHistory;
-  final String? confirmedClassName;
+  final String? confirmedClassName, errorMessage;
   final ValueChanged<int> onSelectClass;
-  final VoidCallback onRegister;
-  final VoidCallback onOpenProfile;
+  final VoidCallback onRegister, onOpenProfile, onOpenSchedule, onOpenHistory;
+  final Future<void> Function() onRefresh;
 
   @override
   State<_AttendancePage> createState() => _AttendancePageState();
 }
 
-class _CardSnapPhysics extends ScrollPhysics {
-  const _CardSnapPhysics({required this.itemExtent, super.parent});
-
-  final double itemExtent;
-
-  @override
-  _CardSnapPhysics applyTo(ScrollPhysics? ancestor) =>
-      _CardSnapPhysics(itemExtent: itemExtent, parent: buildParent(ancestor));
-
-  @override
-  Simulation? createBallisticSimulation(
-    ScrollMetrics position,
-    double velocity,
-  ) {
-    if (position.outOfRange ||
-        position.maxScrollExtent <= position.minScrollExtent ||
-        (velocity <= 0 && position.pixels <= position.minScrollExtent) ||
-        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
-      return super.createBallisticSimulation(position, velocity);
-    }
-    final tolerance = toleranceFor(position);
-    var page = (position.pixels - position.minScrollExtent) / itemExtent;
-    if (velocity < -tolerance.velocity) {
-      page -= .5;
-    } else if (velocity > tolerance.velocity) {
-      page += .5;
-    }
-    final target = (position.minScrollExtent + page.round() * itemExtent).clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    if ((target - position.pixels).abs() <= tolerance.distance) return null;
-    return ScrollSpringSimulation(
-      spring,
-      position.pixels,
-      target,
-      velocity,
-      tolerance: tolerance,
-    );
-  }
-}
-
 class _AttendancePageState extends State<_AttendancePage> {
-  static const _cardHeight = 158.0;
-  static const _cardSpacing = 12.0;
-  late final ScrollController _classScrollController;
+  final _scrollController = ScrollController();
+  final _currentSliverKey = GlobalKey();
+  late int _anchorIndex;
 
   @override
   void initState() {
     super.initState();
-    _classScrollController = ScrollController();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelectedClass());
+    _anchorIndex = widget.selectedClass;
   }
 
   @override
   void didUpdateWidget(covariant _AttendancePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.schedule, widget.schedule)) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _revealSelectedClass(),
-      );
+      _anchorIndex = widget.selectedClass;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
     }
-  }
-
-  void _revealSelectedClass() {
-    if (!mounted || !_classScrollController.hasClients) return;
-    final target = (widget.selectedClass * (_cardHeight + _cardSpacing)).clamp(
-      0.0,
-      _classScrollController.position.maxScrollExtent,
-    );
-    _classScrollController.jumpTo(target);
   }
 
   @override
   void dispose() {
-    _classScrollController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _selectClass(int index) {
-    if (index == widget.selectedClass) return;
     unawaited(HapticFeedback.selectionClick());
     widget.onSelectClass(index);
-  }
-
-  void _focusClass(int index) {
-    _selectClass(index);
-    if (!_classScrollController.hasClients) return;
-    final target = (index * (_cardHeight + _cardSpacing)).clamp(
-      0.0,
-      _classScrollController.position.maxScrollExtent,
-    );
-    unawaited(
-      _classScrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      ),
-    );
-  }
-
-  void _selectSnappedClass(int count) {
-    if (!_classScrollController.hasClients || count == 0) return;
-    final index = (_classScrollController.offset / (_cardHeight + _cardSpacing))
-        .round()
-        .clamp(0, count - 1);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _selectClass(index);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final palette = AppPalette.of(context);
-    final todayItems = _dayItems(widget.schedule, now.weekday);
-    final todayClasses = todayItems
-        .where((occurrence) => !_isFreeOccurrence(occurrence))
-        .toList();
-    final selectedIndex = todayItems.isEmpty
+    final items = _dayItems(widget.schedule, now.weekday);
+    final classes = items.where((item) => !_isFreeOccurrence(item)).toList();
+    final selectedIndex = items.isEmpty
         ? 0
-        : widget.selectedClass.clamp(0, todayItems.length - 1);
-    final selectedOccurrence = todayItems.isEmpty
-        ? null
-        : todayItems[selectedIndex];
-    final selectedIsFree =
-        selectedOccurrence != null && _isFreeOccurrence(selectedOccurrence);
-    final selectedRegistered =
-        selectedOccurrence != null &&
-        !selectedIsFree &&
+        : widget.selectedClass.clamp(0, items.length - 1);
+    final selected = items.isEmpty ? null : items[selectedIndex];
+    final isFree = selected != null && _isFreeOccurrence(selected);
+    bool isRegistered(StudentScheduleOccurrence item) =>
+        !_isFreeOccurrence(item) &&
         (widget.attendanceHistory.any(
-              (entry) => _attendanceMatches(entry, selectedOccurrence, now),
+              (entry) => _attendanceMatches(entry, item, now),
             ) ||
             (widget.confirmed &&
                 subjectDisplayName(
                       widget.confirmedClassName,
                       fallback: '',
                     ).toLowerCase() ==
-                    subjectDisplayName(
-                      selectedOccurrence.entry.subject,
-                    ).toLowerCase()));
+                    subjectDisplayName(item.entry.subject).toLowerCase()));
+    final registered = selected != null && isRegistered(selected);
+    final registeredCount = classes.where(isRegistered).length;
     final dayFinished =
-        todayClasses.isNotEmpty &&
-        todayClasses.every((occurrence) => scheduleHasEnded(occurrence, now)) &&
-        todayClasses.any(
-          (occurrence) => !widget.attendanceHistory.any(
-            (entry) => _attendanceMatches(entry, occurrence, now),
-          ),
-        );
-    final buttonTitle = selectedIsFree
-        ? 'Hora libre'
-        : selectedRegistered
-        ? 'Asistencia registrada'
-        : widget.isActive || widget.isChecking
-        ? 'Cancelando registro'
-        : widget.hasError
-        ? 'Intentar de nuevo'
-        : 'Registrar asistencia';
+        classes.isNotEmpty &&
+        classes.every((item) => scheduleHasEnded(item, now)) &&
+        registeredCount < classes.length;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxHeight < 650;
-        return Stack(
-          children: [
-            Positioned.fill(child: ColoredBox(color: palette.header)),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: compact ? 172 : 202,
-              child: _PresenciaHomeHeader(
-                profile: widget.profile,
-                classCount: todayClasses.length,
-                date: now,
-                compact: compact,
-                onOpenProfile: widget.onOpenProfile,
-              ),
-            ),
-            Column(
-              children: [
-                SizedBox(height: compact ? 152 : 182),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: palette.background,
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(32),
-                      ),
+    final textScaler = MediaQuery.textScalerOf(context);
+    final buttonHeight = (textScaler.scale(14) * 1.5 + 28).clamp(
+      54.0,
+      double.infinity,
+    );
+    final actionClearance =
+        buttonHeight +
+        48 +
+        (selected == null ? 0 : textScaler.scale(11) * 1.5 + 4);
+    final anchorIndex = items.isEmpty
+        ? 0
+        : _anchorIndex.clamp(0, items.length - 1);
+    Widget agendaRow(int index) => Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _AgendaRow(
+        key: ValueKey('attendance-class-$index'),
+        occurrence: items[index],
+        registered: isRegistered(items[index]),
+        selected: index == selectedIndex,
+        now: now,
+        onTap: () => _selectClass(index),
+      ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Column(
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: constraints.maxHeight * .44,
                     ),
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        20,
-                        compact ? 14 : 22,
-                        12,
-                        10,
-                      ),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 4),
-                          Expanded(
-                            child:
-                                widget.scheduleLoading &&
-                                    widget.schedule.isEmpty
-                                ? const Center(child: _AcademicLoadingCard())
-                                : todayItems.isEmpty
-                                ? const Center(child: _NoClassesTodayCard())
-                                : LayoutBuilder(
-                                    builder: (context, listConstraints) {
-                                      final verticalInset =
-                                          ((listConstraints.maxHeight -
-                                                      _cardHeight) /
-                                                  2)
-                                              .clamp(0.0, double.infinity);
-                                      return NotificationListener<
-                                        ScrollEndNotification
-                                      >(
-                                        onNotification: (_) {
-                                          _selectSnappedClass(
-                                            todayItems.length,
-                                          );
-                                          return false;
-                                        },
-                                        child: ListView.separated(
-                                          key: const Key(
-                                            'attendance-class-list',
-                                          ),
-                                          controller: _classScrollController,
-                                          physics: const _CardSnapPhysics(
-                                            itemExtent:
-                                                _cardHeight + _cardSpacing,
-                                          ),
-                                          padding: EdgeInsets.symmetric(
-                                            vertical: verticalInset,
-                                          ),
-                                          itemCount: todayItems.length,
-                                          separatorBuilder: (_, _) =>
-                                              const SizedBox(
-                                                height: _cardSpacing,
-                                              ),
-                                          itemBuilder: (context, index) {
-                                            final item = todayItems[index];
-                                            final selected =
-                                                index == selectedIndex;
-                                            final isFree = _isFreeOccurrence(
-                                              item,
-                                            );
-                                            final registered =
-                                                !isFree &&
-                                                (widget.attendanceHistory.any(
-                                                      (entry) =>
-                                                          _attendanceMatches(
-                                                            entry,
-                                                            item,
-                                                            now,
-                                                          ),
-                                                    ) ||
-                                                    (selected &&
-                                                        selectedRegistered));
-                                            return Semantics(
-                                              selected: selected,
-                                              button: true,
-                                              child: GestureDetector(
-                                                key: ValueKey(
-                                                  'attendance-class-$index',
-                                                ),
-                                                behavior:
-                                                    HitTestBehavior.opaque,
-                                                onTap: () => _focusClass(index),
-                                                child: SizedBox(
-                                                  height: _cardHeight,
-                                                  child: Row(
-                                                    children: [
-                                                      AnimatedContainer(
-                                                        key: ValueKey(
-                                                          'attendance-selection-$index',
-                                                        ),
-                                                        duration:
-                                                            const Duration(
-                                                              milliseconds: 180,
-                                                            ),
-                                                        curve: Curves.easeOut,
-                                                        width: 4,
-                                                        height: 52,
-                                                        decoration: BoxDecoration(
-                                                          color: selected
-                                                              ? palette.accent
-                                                              : Colors
-                                                                    .transparent,
-                                                          borderRadius:
-                                                              BorderRadius.circular(
-                                                                4,
-                                                              ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: isFree
-                                                            ? _HomeFreeCard(
-                                                                occurrence:
-                                                                    item,
-                                                              )
-                                                            : _ClassCard(
-                                                                occurrence:
-                                                                    item,
-                                                                registered:
-                                                                    registered,
-                                                                now: now,
-                                                              ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      );
-                                    },
-                                  ),
+                          _HomeHeader(
+                            profile: widget.profile,
+                            date: now,
+                            onOpenProfile: widget.onOpenProfile,
                           ),
-                          if (dayFinished) ...[
-                            const SizedBox(height: 6),
-                            const _DayFinishedBanner(),
-                          ],
-                          if (widget.confirmed && !selectedRegistered) ...[
-                            const SizedBox(height: 6),
+                          const SizedBox(height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _DaySummaryCard(
+                                  value: '${classes.length}',
+                                  label: 'Clases hoy',
+                                  icon: Icons.calendar_today_outlined,
+                                  color: palette.accent,
+                                  surface: palette.accentSurface,
+                                  onTap: widget.onOpenSchedule,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _DaySummaryCard(
+                                  value:
+                                      '$registeredCount de ${classes.length}',
+                                  label: 'Asistencias hoy',
+                                  icon: Icons.task_alt_rounded,
+                                  color: palette.success,
+                                  surface: palette.successSurface,
+                                  onTap: widget.onOpenHistory,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (widget.confirmed) ...[
+                            const SizedBox(height: 12),
                             _AttendanceConfirmedBanner(
                               className: widget.confirmedClassName,
                             ),
                           ],
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 56,
-                            child: FilledButton(
-                              onPressed: selectedRegistered || selectedIsFree
-                                  ? null
-                                  : widget.onRegister,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: palette.accent,
-                                disabledBackgroundColor: selectedIsFree
-                                    ? palette.freeSurface
-                                    : palette.successSurface,
-                                foregroundColor: palette.background,
-                                disabledForegroundColor: selectedIsFree
-                                    ? palette.muted
-                                    : palette.success,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
+                          const SizedBox(height: 26),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Tu agenda',
+                                  style: TextStyle(
+                                    color: palette.ink,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -.5,
+                                  ),
                                 ),
-                                elevation: 0,
                               ),
-                              child: widget.isChecking && !selectedRegistered
-                                  ? const SizedBox.square(
-                                      dimension: 20,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2.2,
-                                      ),
-                                    )
-                                  : Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.max,
-                                      children: [
-                                        Image.asset(
-                                          'assets/figma/asistencia.png',
-                                          width: 20,
-                                          height: 20,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Flexible(
-                                          child: Text(
-                                            buttonTitle,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                              TextButton(
+                                onPressed: widget.onOpenSchedule,
+                                child: const Text('Ver semana →'),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            'Selecciona una clase para registrar tu asistencia.',
+                            style: TextStyle(
+                              color: palette.muted,
+                              fontSize: 12,
+                              height: 1.5,
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, agendaConstraints) {
+                        return RefreshIndicator(
+                          onRefresh: widget.onRefresh,
+                          color: palette.accent,
+                          child: CustomScrollView(
+                            key: const Key('attendance-class-list'),
+                            controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            center: _currentSliverKey,
+                            // The previous card peeks into view without pushing the
+                            // current class away from the top of the agenda.
+                            anchor: items.isNotEmpty && anchorIndex > 0
+                                ? (40 / agendaConstraints.maxHeight).clamp(
+                                    0.0,
+                                    1.0,
+                                  )
+                                : 0,
+                            slivers: [
+                              if (anchorIndex > 0)
+                                SliverPadding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                  ),
+                                  sliver: SliverList.builder(
+                                    itemCount: anchorIndex,
+                                    itemBuilder: (_, index) =>
+                                        agendaRow(anchorIndex - index - 1),
+                                  ),
+                                ),
+                              SliverPadding(
+                                key: _currentSliverKey,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                sliver: SliverList.list(
+                                  children: [
+                                    if (widget.scheduleLoading &&
+                                        widget.schedule.isEmpty)
+                                      const _AcademicLoadingCard()
+                                    else if (widget.errorMessage != null &&
+                                        widget.schedule.isEmpty)
+                                      _AcademicErrorCard(
+                                        message: widget.errorMessage!,
+                                        onRetry: widget.onRefresh,
+                                      )
+                                    else if (items.isEmpty)
+                                      const _NoClassesTodayCard()
+                                    else
+                                      for (
+                                        var index = anchorIndex;
+                                        index < items.length;
+                                        index++
+                                      )
+                                        agendaRow(index),
+                                    if (dayFinished) const _DayFinishedBanner(),
+                                    if (widget.errorMessage != null &&
+                                        widget.schedule.isNotEmpty)
+                                      _InlineSyncWarning(
+                                        message: widget.errorMessage!,
+                                        onRetry: widget.onRefresh,
+                                      ),
+                                    SizedBox(height: actionClearance + 24),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _AttendanceActionBar(
+            occurrence: selected,
+            registered: registered,
+            isFree: isFree,
+            busy: widget.isActive || widget.isChecking,
+            hasError: widget.hasError,
+            loading: widget.scheduleLoading && widget.schedule.isEmpty,
+            onRegister: widget.onRegister,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AttendanceActionBar extends StatelessWidget {
+  const _AttendanceActionBar({
+    required this.occurrence,
+    required this.registered,
+    required this.isFree,
+    required this.busy,
+    required this.hasError,
+    required this.loading,
+    required this.onRegister,
+  });
+
+  final StudentScheduleOccurrence? occurrence;
+  final bool registered, isFree, busy, hasError, loading;
+  final VoidCallback onRegister;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = registered ? palette.success : palette.accent;
+    final enabled = !registered && !isFree && !busy && !loading;
+    final radius = BorderRadius.circular(20);
+    final buttonTitle = registered
+        ? 'Asistencia registrada'
+        : isFree
+        ? 'Hora libre'
+        : busy
+        ? 'Registro en curso'
+        : hasError
+        ? 'Intentar de nuevo'
+        : 'Registrar asistencia';
+    return Container(
+      key: const Key('attendance-action-bar'),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            palette.background.withValues(alpha: 0),
+            palette.background.withValues(alpha: .25),
+            palette.background.withValues(alpha: .85),
+          ],
+          stops: const [0, .35, 1],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: dark ? .2 : .07),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: dark ? .16 : .7),
+                        Colors.white.withValues(alpha: dark ? .06 : .3),
+                        accent.withValues(alpha: enabled ? .13 : .06),
+                      ],
+                      stops: const [0, .52, 1],
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: dark ? .3 : .8),
+                    ),
+                  ),
+                  child: FilledButton.icon(
+                    onPressed: enabled ? onRegister : null,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(54),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: palette.ink,
+                      disabledBackgroundColor: Colors.transparent,
+                      disabledForegroundColor: registered
+                          ? palette.success
+                          : palette.muted,
+                      surfaceTintColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: radius),
+                    ),
+                    icon: Icon(
+                      registered
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.check_rounded,
+                      size: 22,
+                    ),
+                    label: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          buttonTitle,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (occurrence != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            isFree
+                                ? 'Selecciona una clase'
+                                : subjectDisplayName(occurrence!.entry.subject),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.ink.withValues(alpha: .8),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DaySummaryCard extends StatelessWidget {
+  const _DaySummaryCard({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.surface,
+    required this.onTap,
+  });
+  final String value, label;
+  final IconData icon;
+  final Color color, surface;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: surface,
+    borderRadius: BorderRadius.circular(20),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 23,
+                      letterSpacing: -.6,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Icon(icon, size: 19, color: color),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
-        );
-      },
+        ),
+      ),
+    ),
+  );
+}
+
+class _AgendaRow extends StatelessWidget {
+  const _AgendaRow({
+    super.key,
+    required this.occurrence,
+    required this.registered,
+    required this.selected,
+    required this.now,
+    required this.onTap,
+  });
+  final StudentScheduleOccurrence occurrence;
+  final bool registered, selected;
+  final DateTime now;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    final free = _isFreeOccurrence(occurrence);
+    final missed = !free && !registered && scheduleHasEnded(occurrence, now);
+    final inProgress = !free && _isOccurrenceInProgress(occurrence, now);
+    final color = registered
+        ? palette.success
+        : missed
+        ? palette.warning
+        : selected || inProgress
+        ? palette.accent
+        : palette.muted;
+    return Semantics(
+      selected: selected,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 48,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 17),
+                  child: Column(
+                    children: [
+                      Text(
+                        occurrence.slot.startTime ?? '—',
+                        style: TextStyle(
+                          color: palette.ink,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        occurrence.slot.endTime ?? '',
+                        style: TextStyle(color: palette.muted, fontSize: 10),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  key: const Key('attendance-card-surface'),
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: registered
+                        ? palette.successSurface
+                        : missed
+                        ? palette.warningSurface
+                        : selected
+                        ? palette.accentSurface
+                        : palette.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: selected
+                          ? color.withValues(alpha: .6)
+                          : Colors.transparent,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              free
+                                  ? 'Hora libre'
+                                  : subjectDisplayName(
+                                      occurrence.entry.subject,
+                                    ),
+                              style: TextStyle(
+                                color: palette.ink,
+                                fontSize: 14,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            free
+                                ? Icons.coffee_outlined
+                                : registered
+                                ? Icons.check_circle_outline_rounded
+                                : selected
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.chevron_right_rounded,
+                            color: color,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        free
+                            ? 'Un respiro entre clases.'
+                            : occurrence.entry.classroom ??
+                                  'Aula por confirmar',
+                        style: TextStyle(color: palette.muted, fontSize: 11),
+                      ),
+                      if (registered || missed || inProgress) ...[
+                        const SizedBox(height: 7),
+                        Text(
+                          registered
+                              ? 'Asistencia registrada'
+                              : inProgress
+                              ? 'En curso'
+                              : 'Clase terminada · registro disponible',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 10,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1022,7 +1246,6 @@ class _SchedulePage extends StatefulWidget {
     required this.loading,
     required this.errorMessage,
     required this.onRetry,
-    required this.onBack,
   });
 
   final List<StudentScheduleEntry> schedule;
@@ -1030,7 +1253,6 @@ class _SchedulePage extends StatefulWidget {
   final bool loading;
   final String? errorMessage;
   final Future<void> Function() onRetry;
-  final VoidCallback onBack;
 
   @override
   State<_SchedulePage> createState() => _SchedulePageState();
@@ -1062,10 +1284,10 @@ class _SchedulePageState extends State<_SchedulePage> {
 
   void _revealSelectedDay() {
     if (!mounted || !_dayScrollController.hasClients) return;
-    final target = ((_weekday - 1) * 50.0).clamp(
-      0.0,
-      _dayScrollController.position.maxScrollExtent,
-    );
+    final target =
+        ((_weekday - 1) *
+                (44 * MediaQuery.textScalerOf(context).scale(12) / 12 + 6))
+            .clamp(0.0, _dayScrollController.position.maxScrollExtent);
     unawaited(
       _dayScrollController.animateTo(
         target,
@@ -1105,9 +1327,13 @@ class _SchedulePageState extends State<_SchedulePage> {
         child: ListView(
           key: const Key('full-schedule-scroll'),
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
+          padding: const EdgeInsets.all(24),
           children: [
-            _ScheduleHeader(onBack: widget.onBack),
+            AppPageHeader(
+              eyebrow: 'Organiza tu semana',
+              title: 'Mi horario',
+              subtitle: 'Consulta tus clases y tiempos libres',
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -1144,7 +1370,7 @@ class _SchedulePageState extends State<_SchedulePage> {
             const SizedBox(height: 24),
             SizedBox(
               key: const Key('full-schedule-day-selector'),
-              height: 64,
+              height: 32 + MediaQuery.textScalerOf(context).scale(32),
               child: ListView.separated(
                 controller: _dayScrollController,
                 scrollDirection: Axis.horizontal,
@@ -1237,69 +1463,6 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 }
 
-class _ScheduleHeader extends StatelessWidget {
-  const _ScheduleHeader({required this.onBack});
-
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    return Row(
-      children: [
-        Tooltip(
-          message: 'Volver al inicio',
-          child: Material(
-            color: palette.surface,
-            shape: CircleBorder(side: BorderSide(color: palette.border)),
-            child: InkWell(
-              key: const Key('subpage-back-button'),
-              customBorder: const CircleBorder(),
-              onTap: onBack,
-              child: SizedBox.square(
-                dimension: 44,
-                child: Center(
-                  child: Icon(
-                    Icons.arrow_back_rounded,
-                    color: palette.ink,
-                    size: 20,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'TU VIDA EN EL CAMPUS',
-              style: TextStyle(
-                color: palette.muted,
-                fontSize: 10,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Mi horario',
-              style: TextStyle(
-                color: palette.ink,
-                fontSize: 26,
-                height: 1.23,
-                letterSpacing: -.7,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 class _ScheduleDayPill extends StatelessWidget {
   const _ScheduleDayPill({
     required this.day,
@@ -1323,14 +1486,13 @@ class _ScheduleDayPill extends StatelessWidget {
       button: true,
       label: '$day $date${today ? ', hoy' : ''}',
       child: Material(
-        color: selected ? palette.header : palette.surface,
+        color: selected ? palette.accent : palette.surface,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            width: 44,
-            height: 64,
+            width: 44 * MediaQuery.textScalerOf(context).scale(12) / 12,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: today && !selected
@@ -1343,7 +1505,9 @@ class _ScheduleDayPill extends StatelessWidget {
                 Text(
                   day,
                   style: TextStyle(
-                    color: selected ? Colors.white : palette.muted,
+                    color: selected
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : palette.muted,
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -1352,7 +1516,9 @@ class _ScheduleDayPill extends StatelessWidget {
                 Text(
                   '$date',
                   style: TextStyle(
-                    color: selected ? Colors.white : palette.ink,
+                    color: selected
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : palette.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1378,7 +1544,6 @@ class _ProfilePage extends StatelessWidget {
     required this.lastSyncedAt,
     required this.onLogout,
     required this.isLoggingOut,
-    required this.onBack,
   });
   final StudentAcademicProfile profile;
   final ThemeMode themeMode;
@@ -1390,14 +1555,11 @@ class _ProfilePage extends StatelessWidget {
   final DateTime? lastSyncedAt;
   final VoidCallback onLogout;
   final bool isLoggingOut;
-  final VoidCallback onBack;
   @override
   Widget build(BuildContext context) {
-    const navy = Color(0xFF003B5C);
-    const orange = Color(0xFFD65F05);
-    const lightBackground = Color(0xFFF7F8FA);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = dark ? const Color(0xFF5DC2F0) : navy;
+    final palette = AppPalette.of(context);
+    final orange = palette.accent;
+    final accent = palette.accent;
     final initials = profile.displayName.trim().isEmpty
         ? 'FI'
         : profile.displayName
@@ -1409,19 +1571,19 @@ class _ProfilePage extends StatelessWidget {
               .toUpperCase();
     return ColoredBox(
       key: const Key('profile-page-background'),
-      color: dark ? Theme.of(context).scaffoldBackgroundColor : lightBackground,
+      color: palette.background,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _PageHeader(
+            AppPageHeader(
+              eyebrow: 'Tu cuenta',
               title: 'Perfil',
               subtitle: 'Tu información estudiantil',
-              onBack: onBack,
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 24),
             Card(
               margin: EdgeInsets.zero,
               child: Padding(
@@ -1442,8 +1604,8 @@ class _ProfilePage extends StatelessWidget {
                           alignment: Alignment.center,
                           child: Text(
                             initials,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onPrimary,
                               fontWeight: FontWeight.w700,
                               fontSize: 22,
                             ),
@@ -1573,7 +1735,7 @@ class _ProfilePage extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.dark_mode_outlined, color: orange),
+                  child: Icon(Icons.dark_mode_outlined, color: orange),
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 18,
@@ -1627,408 +1789,49 @@ class _ProfilePage extends StatelessWidget {
   }
 }
 
-class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.title, required this.subtitle, this.onBack});
-  final String title, subtitle;
-  final VoidCallback? onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = dark ? const Color(0xFF5DC2F0) : const Color(0xFF003B5C);
-    return Row(
-      children: [
-        if (onBack != null) ...[
-          Tooltip(
-            message: 'Volver al inicio',
-            child: IconButton(
-              key: const Key('subpage-back-button'),
-              onPressed: onBack,
-              style: IconButton.styleFrom(
-                backgroundColor: appSurface(context),
-                foregroundColor: accent,
-                side: BorderSide(
-                  color: dark
-                      ? const Color(0xFF34383C)
-                      : const Color(0xFFD7DDE2),
-                ),
-              ),
-              icon: const Icon(Icons.arrow_back_rounded),
-            ),
-          ),
-          const SizedBox(width: 12),
-        ],
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PresenciaHomeHeader extends StatelessWidget {
-  const _PresenciaHomeHeader({
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader({
     required this.profile,
-    required this.classCount,
     required this.date,
-    required this.compact,
     required this.onOpenProfile,
   });
-
   final StudentAcademicProfile profile;
-  final int classCount;
   final DateTime date;
-  final bool compact;
   final VoidCallback onOpenProfile;
-
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     final name = profile.displayName.trim();
     final firstName = name.isEmpty
-        ? 'ESTUDIANTE'
-        : name.split(RegExp(r'\s+')).first.toUpperCase();
-    return ColoredBox(
-      color: palette.header,
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: [
-          Positioned(
-            right: -83,
-            top: compact ? 38 : 52,
-            child: Image.asset(
-              'assets/figma/orbita.png',
-              width: 180,
-              height: 180,
-            ),
-          ),
-          Positioned(
-            top: compact ? 16 : 22,
-            left: 24,
-            right: 24,
-            child: Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: palette.headerAccent,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'presencia',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      height: 1.3,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Tooltip(
-                  message: 'Abrir perfil',
-                  child: Material(
-                    color: palette.headerSoft,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      onTap: onOpenProfile,
-                      customBorder: const CircleBorder(),
-                      child: SizedBox.square(
-                        dimension: 44,
-                        child: Center(
-                          child: Text(
-                            _profileInitials(profile),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: compact ? 66 : 78,
-            left: 24,
-            right: 24,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'HOLA, $firstName',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+        ? 'estudiante'
+        : name.split(RegExp(r'\s+')).first;
+    return AppPageHeader(
+      eyebrow: 'Tu día en el campus',
+      title: 'Hola, $firstName.',
+      subtitle: _formattedHomeDate(date),
+      trailing: Tooltip(
+        message: 'Abrir perfil',
+        child: Material(
+          color: palette.surface,
+          shape: CircleBorder(side: BorderSide(color: palette.border)),
+          child: InkWell(
+            onTap: onOpenProfile,
+            customBorder: const CircleBorder(),
+            child: SizedBox.square(
+              dimension: 44,
+              child: Center(
+                child: Text(
+                  _profileInitials(profile),
                   style: TextStyle(
-                    color: palette.headerMuted,
-                    fontSize: 10,
-                    height: 1.4,
+                    color: palette.ink,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Tu día:',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: compact ? 30 : 34,
-                    height: 1.11,
-                    letterSpacing: -.7,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          Positioned(
-            top: compact ? 126 : 150,
-            left: 24,
-            right: 24,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _formattedHomeDate(date),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: palette.headerMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                Text(
-                  '$classCount ${classCount == 1 ? 'clase' : 'clases'} hoy',
-                  style: TextStyle(
-                    color: palette.headerAccent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ClassCard extends StatelessWidget {
-  const _ClassCard({
-    required this.occurrence,
-    required this.registered,
-    required this.now,
-  });
-
-  final StudentScheduleOccurrence occurrence;
-  final bool registered;
-  final DateTime now;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final start = _scheduleTimeForToday(occurrence.slot.startTime, now);
-    final end = _scheduleTimeForToday(occurrence.slot.endTime, now);
-    final inProgress =
-        start != null &&
-        end != null &&
-        !now.isBefore(start) &&
-        now.isBefore(end);
-    final ended = end != null && !now.isBefore(end);
-    final missed = ended && !registered;
-    final statusColor = registered
-        ? palette.success
-        : missed
-        ? palette.warning
-        : palette.muted;
-    final timeColor = registered || missed ? statusColor : palette.ink;
-    final detail = registered
-        ? 'Asistencia registrada'
-        : inProgress
-        ? 'Clase en curso · registro disponible'
-        : ended
-        ? 'Clase terminada · registro disponible'
-        : start != null && start.isAfter(now)
-        ? 'Próxima clase'
-        : 'Clase programada';
-    final time =
-        occurrence.slot.startTime != null && occurrence.slot.endTime != null
-        ? '${occurrence.slot.startTime}–${occurrence.slot.endTime}'
-        : occurrence.slot.displayTime;
-    final room = occurrence.entry.classroom ?? 'Aula por confirmar';
-
-    return Container(
-      key: const Key('attendance-card-surface'),
-      height: 158,
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: registered
-            ? palette.successSurface
-            : missed
-            ? palette.warningSurface
-            : palette.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: registered || missed
-              ? statusColor.withValues(alpha: .45)
-              : palette.border,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  time,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: timeColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Icon(
-                registered
-                    ? Icons.check_circle_rounded
-                    : missed
-                    ? Icons.warning_amber_rounded
-                    : inProgress
-                    ? Icons.radio_button_checked_rounded
-                    : Icons.schedule_rounded,
-                size: 19,
-                color: statusColor,
-                semanticLabel: registered
-                    ? 'Asistencia registrada'
-                    : missed
-                    ? 'Sin asistencia registrada'
-                    : inProgress
-                    ? 'Clase en curso'
-                    : 'Clase programada',
-              ),
-            ],
-          ),
-          Text(
-            subjectDisplayName(occurrence.entry.subject),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: palette.ink,
-              fontSize: 18,
-              height: 1.2,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Row(
-            children: [
-              Icon(Icons.location_on_outlined, size: 16, color: palette.muted),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  room,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: palette.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Text(
-            detail,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HomeFreeCard extends StatelessWidget {
-  const _HomeFreeCard({required this.occurrence});
-
-  final StudentScheduleOccurrence occurrence;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppPalette.of(context);
-    final time =
-        occurrence.slot.startTime != null && occurrence.slot.endTime != null
-        ? '${occurrence.slot.startTime}–${occurrence.slot.endTime}'
-        : occurrence.slot.displayTime;
-    return Container(
-      height: 158,
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: palette.freeSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: palette.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Icon(Icons.spa_outlined, color: palette.muted, size: 24),
-          Text(
-            'Hora libre',
-            style: TextStyle(
-              color: palette.ink,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Text(
-            time,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: palette.muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          Text(
-            'Un respiro entre clases.',
-            style: TextStyle(color: palette.muted, fontSize: 12),
-          ),
-        ],
       ),
     );
   }
@@ -2039,76 +1842,79 @@ class _PresenciaBottomNav extends StatelessWidget {
     required this.selectedTab,
     required this.onSelect,
   });
-
   final int selectedTab;
   final ValueChanged<int> onSelect;
-
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
     const tabs = [
-      ('Tu día', 'assets/figma/tu_dia.png'),
-      ('Horario', 'assets/figma/horario.png'),
-      ('Historial', 'assets/figma/historial.png'),
+      ('Inicio', Icons.grid_view_rounded),
+      ('Horario', Icons.calendar_month_outlined),
+      ('Historial', Icons.fact_check_outlined),
+      ('Perfil', Icons.person_outline_rounded),
     ];
-    return ColoredBox(
-      color: palette.surface,
-      child: SizedBox(
-        height: 72,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              for (var index = 0; index < tabs.length; index++) ...[
-                if (index > 0) const SizedBox(width: 8),
-                Expanded(
-                  child: Material(
-                    color: index == selectedTab
-                        ? palette.accentSurface
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: () => onSelect(index),
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: 44,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            ColorFiltered(
-                              colorFilter: ColorFilter.mode(
-                                index == selectedTab
-                                    ? palette.accent
-                                    : palette.muted,
-                                BlendMode.srcIn,
-                              ),
-                              child: Image.asset(
-                                tabs[index].$2,
-                                width: 20,
-                                height: 20,
-                              ),
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.background,
+        border: Border(top: BorderSide(color: palette.border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          for (var index = 0; index < tabs.length; index++)
+            Expanded(
+              child: Semantics(
+                selected: index == selectedTab,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => onSelect(index),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 15,
+                              vertical: 5,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              tabs[index].$1,
-                              style: TextStyle(
-                                color: index == selectedTab
-                                    ? palette.accent
-                                    : palette.muted,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            decoration: BoxDecoration(
+                              color: index == selectedTab
+                                  ? palette.accentSurface
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                          ],
-                        ),
+                            child: Icon(
+                              tabs[index].$2,
+                              size: 21,
+                              color: index == selectedTab
+                                  ? palette.accent
+                                  : palette.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            tabs[index].$1,
+                            style: TextStyle(
+                              color: index == selectedTab
+                                  ? palette.ink
+                                  : palette.muted,
+                              fontSize: 10,
+                              fontWeight: index == selectedTab
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-              ],
-            ],
-          ),
-        ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2124,13 +1930,19 @@ class _AttendanceConfirmedBanner extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: AppColors.success.withValues(alpha: .11),
+      color: AppPalette.of(context).successSurface,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AppColors.success.withValues(alpha: .28)),
+      border: Border.all(
+        color: AppPalette.of(context).success.withValues(alpha: .28),
+      ),
     ),
     child: Row(
       children: [
-        const Icon(Icons.verified_rounded, color: AppColors.success, size: 21),
+        Icon(
+          Icons.verified_rounded,
+          color: AppPalette.of(context).success,
+          size: 21,
+        ),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
@@ -2150,7 +1962,7 @@ class _DayFinishedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const orange = Color(0xFFD65F05);
+    final orange = AppPalette.of(context).warning;
     return Container(
       key: const Key('day-finished-banner'),
       width: double.infinity,
@@ -2160,7 +1972,7 @@ class _DayFinishedBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: orange.withValues(alpha: .28)),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Icon(Icons.schedule_rounded, color: orange, size: 20),
           SizedBox(width: 9),
@@ -2431,7 +2243,7 @@ class _FullScheduleCard extends StatelessWidget {
         : occurrence.slot.displayTime;
 
     return Container(
-      height: 128,
+      constraints: const BoxConstraints(minHeight: 140),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: registered
@@ -2448,20 +2260,22 @@ class _FullScheduleCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.min,
+        spacing: 9,
         children: [
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: Text(
-                  time,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: registered || missed ? statusColor : palette.ink,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+              Text(
+                time,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: registered || missed ? statusColor : palette.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               Text(
@@ -2912,7 +2726,7 @@ class _ProfileField extends StatelessWidget {
   final String label, value;
   @override
   Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Text(label, style: Theme.of(context).textTheme.labelSmall),
       const SizedBox(height: 5),

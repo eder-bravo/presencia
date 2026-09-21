@@ -225,7 +225,7 @@ void main() {
   );
 
   testWidgets(
-    'bottom sheet displays green check and subject on success, then closes automatically',
+    'bottom sheet displays confirmation check and subject on success, then closes automatically',
     (WidgetTester tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
