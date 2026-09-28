@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00415F"/>
+      <stop offset="0.55" stop-color="#07526B"/>
+      <stop offset="1" stop-color="#17617B"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#EE8C51" stop-opacity="0.6"/>
+      <stop offset="0.5" stop-color="#D76334" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#D76334" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F28A50"/>
+      <stop offset="1" stop-color="#CE602F"/>
+    </linearGradient>
+    <filter id="phoneShadow" x="-50%" y="-40%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <clipPath id="phoneClip">
+      <rect x="677" y="46" width="246" height="436" rx="24"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#background)"/>
+  <circle cx="815" cy="240" r="310" fill="url(#glow)"/>
+  <g fill="none" stroke="#FFFFFF" opacity="0.13">
+    <circle cx="812" cy="247" r="253" stroke-width="1.5"/>
+    <circle cx="812" cy="247" r="310" stroke-width="1.5"/>
+    <circle cx="812" cy="247" r="368" stroke-width="1.5"/>
+  </g>
+  <path d="M0 447 C210 377 336 381 492 450 S786 525 1024 419 L1024 500 L0 500 Z" fill="#00354F" opacity="0.38"/>
+
+  <rect x="93" y="90" width="34" height="5" rx="2.5" fill="url(#accent)"/>
+  <text x="140" y="98" font-family="Inter" font-size="16" font-weight="700" letter-spacing="2.5" fill="#C5E0E8">PRESENCIA <tspan fill="#F5A06E">/</tspan> ALUMNOS</text>
+
+  <text x="93" y="208" font-family="Inter" font-size="61" font-weight="800" letter-spacing="-2.8" fill="#FFFFFF">Tu día en</text>
+  <text x="93" y="274" font-family="Inter" font-size="61" font-weight="800" letter-spacing="-2.8" fill="#FFFFFF">el campus.</text>
+  <rect x="93" y="308" width="72" height="5" rx="2.5" fill="url(#accent)"/>
+  <text x="93" y="361" font-family="Inter" font-size="20" font-weight="500" fill="#DBEBEE">Horario, asistencias e historial</text>
+  <text x="93" y="391" font-family="Inter" font-size="20" font-weight="500" fill="#DBEBEE">en un solo lugar.</text>
+
+  <rect x="663" y="51" width="274" height="456" rx="36" fill="#001E2D" opacity="0.43" filter="url(#phoneShadow)"/>
+  <rect x="668" y="37" width="264" height="457" rx="33" fill="#E9F2F3"/>
+  <rect x="674" y="43" width="252" height="445" rx="27" fill="#FFFFFF"/>
+  <image x="677" y="46" width="246" height="436" xlink:href="01-inicio-1440x2560.png" clip-path="url(#phoneClip)" preserveAspectRatio="none"/>
+  <rect x="674" y="43" width="252" height="445" rx="27" fill="none" stroke="#FFFFFF" stroke-width="5"/>
+
+  <circle cx="928" cy="86" r="8" fill="#F08A4F"/>
+  <circle cx="949" cy="86" r="4" fill="#E6AC80" opacity="0.75"/>
+</svg>
