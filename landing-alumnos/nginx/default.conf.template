@@ -44,12 +44,79 @@ server {
     try_files /privacy.html =404;
   }
 
+  location = /soporte/alumnos/terminos {
+    return 308 /soporte/alumnos/terminos/;
+  }
+
+  location = /soporte/alumnos/terminos/ {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; object-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'" always;
+    try_files /student-terms.html =404;
+  }
+
+  location = /soporte/docentes {
+    return 308 /soporte/docentes/;
+  }
+
+  location = /soporte/docentes/ {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; object-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'" always;
+    try_files /index.html =404;
+  }
+
+  location = /soporte/docentes/privacidad {
+    return 308 /soporte/docentes/privacidad/;
+  }
+
+  location = /soporte/docentes/privacidad/ {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; object-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'" always;
+    try_files /teacher-privacy.html =404;
+  }
+
+  location = /soporte/docentes/terminos {
+    return 308 /soporte/docentes/terminos/;
+  }
+
+  location = /soporte/docentes/terminos/ {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'; object-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'" always;
+    try_files /teacher-terms.html =404;
+  }
+
   location = /soporte/alumnos/styles.css {
     alias /usr/share/nginx/html/styles.css;
     add_header Cache-Control "public, max-age=3600" always;
   }
 
   location /soporte/alumnos/assets/ {
+    alias /usr/share/nginx/html/assets/;
+    access_log off;
+    add_header Cache-Control "public, max-age=2592000, immutable" always;
+  }
+
+  location = /soporte/docentes/styles.css {
+    alias /usr/share/nginx/html/styles.css;
+    add_header Cache-Control "public, max-age=3600" always;
+  }
+
+  location /soporte/docentes/assets/ {
     alias /usr/share/nginx/html/assets/;
     access_log off;
     add_header Cache-Control "public, max-age=2592000, immutable" always;
