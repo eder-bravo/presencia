@@ -36,6 +36,7 @@ class AppLogService with WidgetsBindingObserver {
   bool _flushing = false;
   bool _initialized = false;
   bool _autoFlush = true;
+  bool _readingUserIdentifier = false;
   Future<void> _writeTail = Future<void>.value();
   int _failedAttempts = 0;
   DateTime _nextAttemptAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -110,7 +111,14 @@ class AppLogService with WidgetsBindingObserver {
   }) async {
     final queue = _queue;
     final metadata = _metadata;
-    if (!_initialized || queue == null || metadata == null) return;
+    // El callback de identidad puede usar servicios que también registran
+    // errores. No permitir que un log genere otro al consultar sus metadatos.
+    if (!_initialized ||
+        queue == null ||
+        metadata == null ||
+        _readingUserIdentifier) {
+      return;
+    }
     final previousWrite = _writeTail;
     final currentWrite = Completer<void>();
     _writeTail = currentWrite.future;
@@ -300,10 +308,13 @@ class AppLogService with WidgetsBindingObserver {
   }
 
   String? _safeUserIdentifier() {
+    _readingUserIdentifier = true;
     try {
       return _userIdentifierProvider?.call()?.trim();
     } catch (_) {
       return null;
+    } finally {
+      _readingUserIdentifier = false;
     }
   }
 

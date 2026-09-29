@@ -1,0 +1,60 @@
+{
+  "verified_at_utc": "2026-09-29T06:59:39.445740+00:00",
+  "build_version": "1.0.0+1",
+  "artifacts": [
+    {
+      "path": "build/app/outputs/flutter-apk/app-release.apk",
+      "size_bytes": 60037186,
+      "sha256": "9bf3552cf2f42583cc36266a2a758bc2f4af6fdb64b649635d310c365d47af5e",
+      "native_entries": [
+        {
+          "entry": "lib/arm64-v8a/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        },
+        {
+          "entry": "lib/armeabi-v7a/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        },
+        {
+          "entry": "lib/x86_64/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        }
+      ]
+    },
+    {
+      "path": "build/app/outputs/bundle/release/app-release.aab",
+      "size_bytes": 58567160,
+      "sha256": "d8948291ac1e325012acbd6822bb06cc77f601004b7630f5ba10f44008bea7a8",
+      "native_entries": [
+        {
+          "entry": "base/lib/arm64-v8a/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        },
+        {
+          "entry": "base/lib/armeabi-v7a/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        },
+        {
+          "entry": "base/lib/x86_64/libapp.so",
+          "deployment_key_present": true,
+          "development_key_present": false
+        }
+      ]
+    }
+  ],
+  "existing_and_regression_tests_passed": 19,
+  "static_analysis": "No issues found",
+  "live_mobile_transport": {
+    "passed": true,
+    "replayed_existing_event_id": "0cd278ea-4e27-4039-a826-c71c705cb29c",
+    "temporary_queue_before": 1,
+    "temporary_queue_after": 0,
+    "additional_events_inserted": 0
+  },
+  "phone_installation_verified": false
+}

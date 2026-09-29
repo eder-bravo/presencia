@@ -1,0 +1,16 @@
+{
+  "scenario": "synthetic_inventory_not_phone_measurement",
+  "groups": 6,
+  "students_per_group": 50,
+  "binding_count": 300,
+  "auth_hive_bytes": {
+    "after_1_binding_updates": 108318,
+    "after_30_binding_updates": 1828980,
+    "after_60_binding_updates": 3608973,
+    "after_62_binding_updates": 108318
+  },
+  "attendance_records": 360,
+  "attendance_hive_bytes": 751200,
+  "attendance_records_after_logout": 360,
+  "attendance_records_after_explicit_synced_cleanup": 180
+}

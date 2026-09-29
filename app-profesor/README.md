@@ -130,8 +130,13 @@ ingesta del despliegue:
 ```bash
 cp env.example.json env.local.json
 # Edita PRESENCIA_LOG_INGESTION_KEY con el valor entregado por CI/CD.
-flutter build apk --release --dart-define-from-file=env.local.json
+python3 tool/build_release.py --format apk
 ```
+
+El comando valida que exista una clave de ingesta y que no sea un valor de
+ejemplo. También incluye la versión y el número de compilación reales en los
+diagnósticos, sin imprimir la clave. No sobrescribas `env.local.json` si ya está
+configurado. Puedes indicar otro archivo con `--config /ruta/al/archivo.json`.
 
 Para otro entorno, copia el ejemplo (el archivo local está ignorado por Git),
 modifica `API_BASE_URL` y úsalo al ejecutar o compilar:
@@ -139,12 +144,29 @@ modifica `API_BASE_URL` y úsalo al ejecutar o compilar:
 ```bash
 cp env.example.json env.local.json
 flutter run --dart-define-from-file=env.local.json
-flutter build apk --release --dart-define-from-file=env.local.json
+python3 tool/build_release.py --format apk
 ```
 
-No guardes contraseñas ni tokens de usuario en estos archivos. La clave de
-ingesta queda incluida en el binario, por lo que sólo autoriza escritura y el
-backend aplica rate limit y validación estricta; nunca permite leer logs.
+No guardes contraseñas ni tokens de usuario en los archivos `env*.json`. La
+clave de ingesta queda incluida en el binario, por lo que sólo autoriza
+escritura y el backend aplica rate limit y validación estricta; nunca permite
+leer logs.
+
+Para generar el Android App Bundle de Google Play con autenticación real:
+
+```bash
+python3 tool/build_release.py --format appbundle
+```
+
+Antes de una nueva publicación, aumenta el número de versión en `pubspec.yaml`
+o usa `--build-name` y `--build-number`. El archivo público
+`env.production.json` por sí solo no contiene la clave necesaria para enviar
+logs al servidor.
+
+La firma de `release` usa `android/key.properties` y
+`android/app/upload-keystore.jks`. Ambos archivos están ignorados por Git.
+Guarda una copia segura de los dos: la misma clave de carga se necesita para
+las siguientes versiones de esta app en Google Play.
 
 4. **Generar código (si es necesario)**
 ```bash

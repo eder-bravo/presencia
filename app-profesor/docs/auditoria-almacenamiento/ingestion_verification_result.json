@@ -1,0 +1,153 @@
+{
+  "base_url": "https://dashboarduat.presenciauat.fit",
+  "health": {
+    "status": "ok",
+    "service": "api-gateway",
+    "dependencies": {
+      "uatIntegration": {
+        "ok": true,
+        "status": 200
+      },
+      "identity": {
+        "ok": true,
+        "status": 200
+      },
+      "academic": {
+        "ok": true,
+        "status": 200
+      },
+      "attendance": {
+        "ok": true,
+        "status": 200
+      },
+      "coordinationQuery": {
+        "ok": true,
+        "status": 200
+      },
+      "appLogs": {
+        "ok": true,
+        "status": 200
+      },
+      "redis": {
+        "ok": true
+      }
+    }
+  },
+  "authentication_probe": {
+    "checked_at_utc": "2026-09-29T06:47:16.607169+00:00",
+    "default_key": {
+      "status": 401,
+      "body": {
+        "error": "INVALID_APP_LOG_KEY",
+        "message": "Cliente de logs no autorizado."
+      },
+      "correlation_id": "5e9ada2e3ac12909dcc51deb530ab858",
+      "date": "Tue, 29 Sep 2026 06:47:16 GMT"
+    },
+    "deployment_key": {
+      "status": 400,
+      "body": {
+        "error": "VALIDATION_ERROR",
+        "message": "El lote de logs no cumple el contrato.",
+        "details": [
+          {
+            "path": "schemaVersion",
+            "message": "Invalid input: expected 1"
+          },
+          {
+            "path": "batchId",
+            "message": "Invalid input: expected string, received undefined"
+          },
+          {
+            "path": "sentAt",
+            "message": "Invalid input: expected string, received undefined"
+          },
+          {
+            "path": "events",
+            "message": "Invalid input: expected array, received undefined"
+          }
+        ]
+      },
+      "correlation_id": "23a78fbe6bb9c32ca3ec0b0498423941",
+      "date": "Tue, 29 Sep 2026 06:47:16 GMT"
+    }
+  },
+  "delivery_probe": {
+    "checked_at_utc": "2026-09-29T06:47:34.158558+00:00",
+    "event_id": "0cd278ea-4e27-4039-a826-c71c705cb29c",
+    "initial_submission": {
+      "status": 202,
+      "body": {
+        "data": {
+          "batchId": "7944c8b2-9ba0-4a9e-8f46-ffeaeabfa9ac",
+          "acceptedEventIds": [
+            "0cd278ea-4e27-4039-a826-c71c705cb29c"
+          ],
+          "inserted": 1,
+          "duplicates": 0,
+          "committedAt": "2026-09-29T06:47:34.139Z"
+        }
+      },
+      "correlation_id": "27fddc22193efaa52efe77cab421ac5c",
+      "date": "Tue, 29 Sep 2026 06:47:34 GMT"
+    },
+    "event_acknowledged": true,
+    "idempotency_check_same_event": {
+      "status": 200,
+      "body": {
+        "data": {
+          "batchId": "7944c8b2-9ba0-4a9e-8f46-ffeaeabfa9ac",
+          "acceptedEventIds": [
+            "0cd278ea-4e27-4039-a826-c71c705cb29c"
+          ],
+          "inserted": 0,
+          "duplicates": 1,
+          "committedAt": "2026-09-29T06:47:34.287Z"
+        }
+      },
+      "correlation_id": "84f54639f6cc922f7692600826c478c0",
+      "date": "Tue, 29 Sep 2026 06:47:34 GMT"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "build/app/outputs/flutter-apk/app-release.apk",
+      "sha256": "c1af686795e017ecef943df2ba1760c872b2ec4cb03d96d669f280f2c74dfc44",
+      "modified_utc": "2026-09-18T08:14:48.177315+00:00",
+      "native_entries": [
+        {
+          "entry": "lib/arm64-v8a/libapp.so",
+          "development_log_key_present": true
+        },
+        {
+          "entry": "lib/armeabi-v7a/libapp.so",
+          "development_log_key_present": true
+        },
+        {
+          "entry": "lib/x86_64/libapp.so",
+          "development_log_key_present": true
+        }
+      ]
+    },
+    {
+      "path": "build/app/outputs/bundle/release/app-release.aab",
+      "sha256": "e030a769afc77ca17d745bb276f422792d2d99186abc444fcac57ef0c6610ec0",
+      "modified_utc": "2026-09-28T07:42:30.848933+00:00",
+      "native_entries": [
+        {
+          "entry": "base/lib/arm64-v8a/libapp.so",
+          "development_log_key_present": true
+        },
+        {
+          "entry": "base/lib/armeabi-v7a/libapp.so",
+          "development_log_key_present": true
+        },
+        {
+          "entry": "base/lib/x86_64/libapp.so",
+          "development_log_key_present": true
+        }
+      ]
+    }
+  ],
+  "scope": "Local build artifacts and live synthetic server probe; installed phone version not verified."
+}

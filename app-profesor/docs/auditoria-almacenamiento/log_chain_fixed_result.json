@@ -1,0 +1,11 @@
+{
+  "scenario": "fixed_identity_callback_offline_equivalent",
+  "external_seed_events": 1,
+  "test_only_fuse_identity_reads": 1000,
+  "total_events": 1,
+  "self_generated_debug_events": 0,
+  "elapsed_ms_desktop_test_only": 119,
+  "hive_file_bytes": 772,
+  "hive_file_bytes_after_compact": 772,
+  "json_bytes": 637
+}

@@ -107,7 +107,8 @@ class AuthStorageService {
       final profesorJson = _box?.get(_profesorKey) as String?;
       if (profesorJson != null) {
         final json = jsonDecode(profesorJson) as Map<String, dynamic>;
-        Logger.debug('Datos del profesor recuperados');
+        // La telemetría consulta este getter para identificar al usuario.
+        // Registrar esa lectura produciría una cadena infinita de logs.
         return Profesor.fromJson(json);
       }
       return null;
