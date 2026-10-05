@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/uat_colors.dart';
 import '../../../shared/models/alumno.dart';
 
+const _scannerSuccessAccent = Color(0xFF1F9D63);
+const _scannerSuccessTextLight = Color(0xFF12643D);
+const _scannerPauseColor = Color(0xFFCB3D3D);
+
 class StudentScannerPage extends StatefulWidget {
   final List<Alumno> students;
   final ValueListenable<List<String>> detectedStudentKeys;
@@ -80,11 +84,13 @@ class _StudentScannerPageState extends State<StudentScannerPage>
       _isStarting = false;
       _scanStarted = started;
     });
+    if (!started) _pulseController.stop();
   }
 
-  Future<void> _cancelAndClose() async {
+  Future<void> _pauseAndClose() async {
     if (_isStopping) return;
     setState(() => _isStopping = true);
+    _pulseController.stop();
     try {
       await widget.onStop();
     } catch (_) {
@@ -112,7 +118,7 @@ class _StudentScannerPageState extends State<StudentScannerPage>
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) unawaited(_cancelAndClose());
+        if (!didPop) unawaited(_pauseAndClose());
       },
       child: Scaffold(
         key: const ValueKey('student-scanner-page'),
@@ -139,7 +145,7 @@ class _StudentScannerPageState extends State<StudentScannerPage>
                   const SizedBox(height: 22),
                   Expanded(child: _buildDetectedStudents(palette)),
                   const SizedBox(height: 18),
-                  _buildCancelButton(),
+                  _buildPauseButton(),
                 ],
               ),
             ),
@@ -182,9 +188,10 @@ class _StudentScannerPageState extends State<StudentScannerPage>
                 gradient: LinearGradient(colors: widget.gradientColors),
                 boxShadow: [
                   BoxShadow(
-                    color: widget.gradientColors.first.withValues(alpha: 0.3),
+                    color: widget.gradientColors.first.withValues(alpha: 0.2),
                     blurRadius: 24,
                     spreadRadius: 2,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
@@ -198,7 +205,9 @@ class _StudentScannerPageState extends State<StudentScannerPage>
         ),
         const SizedBox(height: 12),
         Text(
-          _isStarting
+          _isStopping
+              ? 'Pausando escaneo'
+              : _isStarting
               ? 'Preparando escaneo'
               : _scanStarted
               ? 'Escaneando alumnos'
@@ -228,11 +237,28 @@ class _StudentScannerPageState extends State<StudentScannerPage>
           duration: const Duration(milliseconds: 220),
           child: _buildStatusPill(palette),
         ),
+        if (_scanStarted) ...[
+          const SizedBox(height: 14),
+          _ScanningDots(
+            key: const ValueKey('scanner-activity-dots'),
+            animation: _pulseController,
+            color: _scannerSuccessAccent,
+            reduceMotion: reduceMotion,
+          ),
+        ],
       ],
     );
   }
 
   Widget _buildStatusPill(UATPalette palette) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final successColor = isDark
+        ? _scannerSuccessAccent
+        : _scannerSuccessTextLight;
+    final warningColor = isDark
+        ? const Color(0xFFFFB74D)
+        : const Color(0xFF9A4D00);
+
     if (_isStarting) {
       return Container(
         key: const ValueKey('scanner-starting'),
@@ -279,9 +305,9 @@ class _StudentScannerPageState extends State<StudentScannerPage>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.info_outline_rounded,
-              color: Colors.orange,
+              color: warningColor,
               size: 16,
             ),
             const SizedBox(width: 7),
@@ -290,8 +316,8 @@ class _StudentScannerPageState extends State<StudentScannerPage>
                 _scanError == null
                     ? 'Revisa Bluetooth y los permisos'
                     : 'Vuelve a intentarlo o reinicia Bluetooth',
-                style: const TextStyle(
-                  color: Colors.orange,
+                style: TextStyle(
+                  color: warningColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -318,35 +344,21 @@ class _StudentScannerPageState extends State<StudentScannerPage>
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFF1F9D63).withValues(alpha: 0.12),
+            color: _scannerSuccessAccent.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: const Color(0xFF1F9D63).withValues(alpha: 0.28),
+              color: _scannerSuccessAccent.withValues(alpha: 0.28),
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1F9D63),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                available > 0 && available >= count
-                    ? '$count de $available detectados'
-                    : '$count detectados',
-                style: const TextStyle(
-                  color: Color(0xFF1F9D63),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+          child: Text(
+            available > 0 && available >= count
+                ? '$count de $available detectados'
+                : '$count detectados',
+            style: TextStyle(
+              color: successColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         );
       },
@@ -376,44 +388,24 @@ class _StudentScannerPageState extends State<StudentScannerPage>
                   palette: palette,
                   isUnavailable: !_isStarting && !_scanStarted,
                 )
-              : Scrollbar(
+              : _DetectedStudentsList(
                   key: const ValueKey('detected-student-list'),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    itemCount: detectedStudents.length,
-                    itemBuilder: (context, index) {
-                      final student = detectedStudents[index];
-                      final studentKey = _studentKey(student);
-                      return Padding(
-                        key: ValueKey('detected-student-row-$studentKey'),
-                        padding: EdgeInsets.only(
-                          bottom: index == detectedStudents.length - 1 ? 0 : 12,
-                        ),
-                        child: _DetectedStudentCard(
-                          key: ValueKey('detected-student-$studentKey'),
-                          student: student,
-                          accentColor: widget.gradientColors.first,
-                          palette: palette,
-                        ),
-                      );
-                    },
-                  ),
+                  students: detectedStudents,
+                  accentColor: widget.gradientColors.first,
+                  palette: palette,
                 ),
         );
       },
     );
   }
 
-  Widget _buildCancelButton() {
+  Widget _buildPauseButton() {
     return SizedBox(
       width: double.infinity,
       height: 58,
       child: FilledButton.icon(
         key: const ValueKey('cancel-student-scan'),
-        onPressed: _isStopping ? null : _cancelAndClose,
+        onPressed: _isStopping ? null : _pauseAndClose,
         icon: _isStopping
             ? const SizedBox(
                 width: 19,
@@ -423,13 +415,11 @@ class _StudentScannerPageState extends State<StudentScannerPage>
                   strokeWidth: 2.4,
                 ),
               )
-            : const Icon(Icons.close_rounded, size: 22),
-        label: Text(_isStopping ? 'Cerrando...' : 'Cancelar escaneo'),
+            : const Icon(Icons.pause_rounded, size: 22),
+        label: Text(_isStopping ? 'Pausando...' : 'Pausar escaneo'),
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFD64545),
-          disabledBackgroundColor: const Color(
-            0xFFD64545,
-          ).withValues(alpha: 0.7),
+          backgroundColor: _scannerPauseColor,
+          disabledBackgroundColor: _scannerPauseColor.withValues(alpha: 0.7),
           foregroundColor: Colors.white,
           disabledForegroundColor: Colors.white,
           elevation: 0,
@@ -440,6 +430,55 @@ class _StudentScannerPageState extends State<StudentScannerPage>
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScanningDots extends StatelessWidget {
+  final Animation<double> animation;
+  final Color color;
+  final bool reduceMotion;
+
+  const _ScanningDots({
+    super.key,
+    required this.animation,
+    required this.color,
+    required this.reduceMotion,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: 28,
+        height: 12,
+        child: AnimatedBuilder(
+          animation: animation,
+          builder: (context, _) => Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(3, (index) {
+              final phase = (animation.value - index * 0.18) % 1;
+              final pulse = reduceMotion
+                  ? 1.0
+                  : Curves.easeInOut.transform(1 - (phase - 0.5).abs() * 2);
+              return Transform.translate(
+                offset: Offset(0, reduceMotion ? 0 : -2 * pulse),
+                child: Opacity(
+                  opacity: 0.35 + 0.65 * pulse,
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              );
+            }),
           ),
         ),
       ),
@@ -534,7 +573,135 @@ class _ScannerEmptyState extends StatelessWidget {
   }
 }
 
-class _DetectedStudentCard extends StatefulWidget {
+class _DetectedStudentsList extends StatefulWidget {
+  final List<Alumno> students;
+  final Color accentColor;
+  final UATPalette palette;
+
+  const _DetectedStudentsList({
+    super.key,
+    required this.students,
+    required this.accentColor,
+    required this.palette,
+  });
+
+  @override
+  State<_DetectedStudentsList> createState() => _DetectedStudentsListState();
+}
+
+class _DetectedStudentsListState extends State<_DetectedStudentsList> {
+  final _listKey = GlobalKey<AnimatedListState>();
+  late final List<Alumno> _students;
+
+  @override
+  void initState() {
+    super.initState();
+    _students = List.of(widget.students);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetectedStudentsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final listState = _listKey.currentState;
+    if (listState == null) {
+      _students
+        ..clear()
+        ..addAll(widget.students);
+      return;
+    }
+
+    final nextKeys = widget.students.map(_studentKey).toSet();
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final duration = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 260);
+
+    for (var index = _students.length - 1; index >= 0; index--) {
+      if (!nextKeys.contains(_studentKey(_students[index]))) {
+        _students.removeAt(index);
+        listState.removeItem(
+          index,
+          (_, _) => const SizedBox.shrink(),
+          duration: Duration.zero,
+        );
+      }
+    }
+
+    for (var index = 0; index < widget.students.length; index++) {
+      final student = widget.students[index];
+      final key = _studentKey(student);
+      if (index < _students.length && _studentKey(_students[index]) == key) {
+        _students[index] = student;
+        continue;
+      }
+
+      final previousIndex = _students.indexWhere(
+        (current) => _studentKey(current) == key,
+      );
+      if (previousIndex >= 0) {
+        _students.removeAt(previousIndex);
+        listState.removeItem(
+          previousIndex,
+          (_, _) => const SizedBox.shrink(),
+          duration: Duration.zero,
+        );
+      }
+
+      _students.insert(index, student);
+      // Animate detections, not existing rows rebuilt while scrolling.
+      listState.insertItem(
+        index,
+        duration: previousIndex < 0 ? duration : Duration.zero,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scrollbar(
+      child: AnimatedList(
+        key: _listKey,
+        initialItemCount: _students.length,
+        padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
+        physics: const ClampingScrollPhysics(),
+        itemBuilder: (context, index, animation) {
+          final student = _students[index];
+          final studentKey = _studentKey(student);
+          final easedAnimation = animation.drive(
+            CurveTween(curve: Curves.easeOutCubic),
+          );
+          return SizeTransition(
+            key: ValueKey('detected-student-row-$studentKey'),
+            sizeFactor: easedAnimation,
+            alignment: Alignment.topCenter,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(-0.045, 0),
+                end: Offset.zero,
+              ).animate(easedAnimation),
+              child: FadeTransition(
+                opacity: animation.drive(CurveTween(curve: Curves.easeOut)),
+                child: Padding(
+                  // Keep the shadow inside the row's animation clip.
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                  child: _DetectedStudentCard(
+                    key: ValueKey('detected-student-$studentKey'),
+                    student: student,
+                    accentColor: widget.accentColor,
+                    palette: widget.palette,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DetectedStudentCard extends StatelessWidget {
   final Alumno student;
   final Color accentColor;
   final UATPalette palette;
@@ -547,127 +714,101 @@ class _DetectedStudentCard extends StatefulWidget {
   });
 
   @override
-  State<_DetectedStudentCard> createState() => _DetectedStudentCardState();
-}
-
-class _DetectedStudentCardState extends State<_DetectedStudentCard> {
-  bool _entered = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _entered = true);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    final duration = reduceMotion
-        ? Duration.zero
-        : const Duration(milliseconds: 480);
-    final matricula = widget.student.matricula?.trim().toUpperCase();
+    final matricula = student.matricula?.trim().toUpperCase();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final successColor = isDark
+        ? _scannerSuccessAccent
+        : _scannerSuccessTextLight;
 
-    return AnimatedSlide(
-      offset: _entered ? Offset.zero : const Offset(-1.15, 0),
-      duration: duration,
-      curve: Curves.easeOutBack,
-      child: AnimatedOpacity(
-        opacity: _entered ? 1 : 0,
-        duration: duration,
-        curve: Curves.easeOut,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 116),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: widget.palette.surface,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: widget.accentColor.withValues(alpha: 0.28),
+    return Container(
+      constraints: const BoxConstraints(minHeight: 116),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: palette.border.withValues(alpha: isDark ? 0.14 : 0.10),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (isDark ? palette.shadow : palette.textPrimary).withValues(
+              alpha: isDark ? 0.18 : 0.06,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: widget.palette.shadow,
-                blurRadius: 24,
-                offset: const Offset(0, 12),
-              ),
-            ],
+            blurRadius: 8,
+            spreadRadius: -2,
+            offset: const Offset(0, 2),
           ),
-          child: Row(
-            children: [
-              _StudentAvatar(
-                student: widget.student,
-                accentColor: widget.accentColor,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.student.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: widget.palette.textPrimary,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        height: 1.15,
-                      ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _StudentAvatar(student: student, accentColor: accentColor),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  student.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                  ),
+                ),
+                if (matricula != null && matricula.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    'Matrícula $matricula',
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
-                    if (matricula != null && matricula.isNotEmpty) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        'Matrícula $matricula',
-                        style: TextStyle(
-                          color: widget.palette.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_rounded,
+                      color: successColor,
+                      size: 17,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Asistencia registrada',
+                      style: TextStyle(
+                        color: successColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                    const SizedBox(height: 8),
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.check_circle_rounded,
-                          color: Color(0xFF1F9D63),
-                          size: 17,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Asistencia registrada',
-                          style: TextStyle(
-                            color: Color(0xFF1F9D63),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1F9D63).withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.done_rounded,
-                  color: Color(0xFF1F9D63),
-                  size: 22,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _scannerSuccessAccent.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.done_rounded,
+              color: successColor,
+              size: 22,
+            ),
+          ),
+        ],
       ),
     );
   }

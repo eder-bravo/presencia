@@ -78,7 +78,14 @@ void main() {
       );
       await drainNestedWrites();
       expect(queue.length, 2);
-      expect((queue.values.last as Map).containsKey('userIdentifier'), isFalse);
+      // Hive iterates UUID keys in key order, not chronological event order.
+      final originalError =
+          queue.values.singleWhere(
+                (event) => event['eventName'] == 'test.original_error',
+              )
+              as Map;
+      expect(originalError['sequence'], 2);
+      expect(originalError.containsKey('userIdentifier'), isFalse);
 
       throwFromProvider = false;
       await Future.wait(
@@ -164,8 +171,13 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(queue.length, 2);
       expect(reads, 2);
-      expect((queue.values.last as Map)['eventName'], 'test.original');
-      expect((queue.values.last as Map).containsKey('userIdentifier'), isFalse);
+      final originalError =
+          queue.values.singleWhere(
+                (event) => event['eventName'] == 'test.original',
+              )
+              as Map;
+      expect(originalError['sequence'], 2);
+      expect(originalError.containsKey('userIdentifier'), isFalse);
     },
   );
 }

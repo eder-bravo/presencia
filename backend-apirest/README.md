@@ -318,6 +318,15 @@ cifrada. El worker serializa `Asistencia` y la envía después al portal UAT com
 `application/x-www-form-urlencoded` contra
 `/Profesor/ControlAsistencia/GuardaAsistencias`.
 
+La app captura un estado diario por alumno. Antes de publicar, el worker
+consulta `BuscaAsistenciaGrupo` para el grupo y la semana de la captura y usa
+`Num_Pl_<día>` para generar los pases `1..N` de cada alumno, conservando su
+presencia o falta en todas las horas del día. `Num_Lista` es el número del alumno
+en el padrón y no identifica una hora; `Txt_Pl_<día>` sólo contiene pases ya
+guardados y no determina cuántos deben enviarse. Si UAT no devuelve el padrón o
+el total de pases válido, el job se reintenta sin publicar una lista parcial.
+Consulta el [diagnóstico de asistencia con varias horas](../docs/operations/ASISTENCIA_MULTIPLES_HORAS.md).
+
 ## Clases compartidas
 
 Academic Service es la autoridad de las clases compartidas. UAT Integration

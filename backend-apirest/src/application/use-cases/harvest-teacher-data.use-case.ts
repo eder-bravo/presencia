@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Coordination } from '../../domain/entities/coordination.js';
 import type { TeacherAuthenticatedEvent } from '../../domain/events/teacher-authenticated.event.js';
-import type { JsonRecord, UatCicloEscolarItem, UatDesItem, UatNivelEducativoItem } from '../../domain/types/uat.interfaces.js';
+import type { JsonRecord, UatCicloEscolarItem, UatDesItem, UatHorarioItem, UatNivelEducativoItem } from '../../domain/types/uat.interfaces.js';
 import type { UatService } from '../services/uat.service.js';
 import { MappedTeacherGroup, UatTeacherDataMapper } from '../mappers/uat-teacher-data.mapper.js';
 import type {
@@ -76,7 +76,13 @@ export class HarvestTeacherDataUseCase {
           Id_Ciclo_Escolar: cycle.Id_Ciclo_Escolar,
           Id_DES: des.Id_DES,
         });
-        const scheduleByGroup = new Map(schedules.data.map((item) => [String(item.Id_Grupo), item]));
+        const scheduleByGroup = new Map<string, UatHorarioItem[]>();
+        for (const item of schedules.data) {
+          const groupId = String(item.Id_Grupo);
+          const rows = scheduleByGroup.get(groupId) ?? [];
+          rows.push(item);
+          scheduleByGroup.set(groupId, rows);
+        }
         for (const raw of response.data) {
           const mapped = this.mapper.mapGroup({
             raw,

@@ -20,7 +20,7 @@ describe('AttendanceUploadService', () => {
     expect(captured[0]?.records.map((item) => item.clientRecordId)).toEqual(['local-1', 'local-2']);
   });
 
-  it('normaliza el pase UAT y no confunde el número de lista del alumno', async () => {
+  it('almacena el marcador de captura diaria que el worker expande a los pases UAT', async () => {
     const captured: CreateAttendanceUploadBatchInput[] = [];
     const service = new AttendanceUploadService(fakeRepository(captured));
     const input = record('local-1', 11, 515722);

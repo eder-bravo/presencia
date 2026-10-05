@@ -1,0 +1,35 @@
+{
+  "verified_at_utc": "2026-09-30T19:45:13.445511+00:00",
+  "artifacts": [
+    {
+      "path": "build/app/outputs/flutter-apk/app-release.apk",
+      "size_bytes": 60135526,
+      "sha256": "4b1dc7dd9872b2915ec69c1b4e5567beebafe989ec8609fee4d20c799dd323e5",
+      "packaged_manifest": {
+        "version_name": "1.0.2",
+        "version_code": 3,
+        "enable_impeller": false
+      }
+    },
+    {
+      "path": "build/app/outputs/bundle/release/app-release.aab",
+      "size_bytes": 58612102,
+      "sha256": "477aa1192699f60cb128b03eb4869f472a4fd800504c362df2955a08c5ba8f95",
+      "packaged_manifest": {
+        "version_name": "1.0.2",
+        "version_code": 3,
+        "enable_impeller": false
+      }
+    }
+  ],
+  "tests": {
+    "passed": 111,
+    "skipped": 6,
+    "failed": 0
+  },
+  "production_code_analysis": "No issues found",
+  "full_project_analysis_preexisting_findings": 7,
+  "apk_signature_valid": true,
+  "apk_signer_matches_previous_local_release": true,
+  "phone_verification_completed": false
+}

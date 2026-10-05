@@ -184,6 +184,14 @@ almacenamiento local y la reenvía cuando hay red. El Gateway y los servicios
 reconocen claves de idempotencia para que repetir la petición no duplique la
 asistencia.
 
+La captura de alumnos es diaria por grupo. Al publicar en UAT, el worker
+consulta el padrón de la semana y replica el estado de cada alumno a los pases
+`1..N` indicados por `Num_Pl_<día>`. Así un bloque de cuatro horas recibe cuatro
+entradas por alumno aunque la app instalada envíe sólo el marcador de pase 1.
+La sincronización académica reúne todas las filas de horario del mismo grupo
+para conservar también los bloques separados del día. Los detalles y la
+evidencia están en [Asistencia con varias horas](operations/ASISTENCIA_MULTIPLES_HORAS.md).
+
 La entrada/salida del profesor se registra con la hora efectiva del servidor.
 La detección del beacon ayuda a identificar salón y presencia, pero el cliente
 no puede sustituir la hora del backend.

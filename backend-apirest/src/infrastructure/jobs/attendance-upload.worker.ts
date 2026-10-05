@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { AttendanceUploadRepository } from '../../domain/attendance-upload/attendance-upload.repository.js';
+import { expandDailyAttendances, uatAttendanceWeekRange } from '../../domain/attendance-upload/uat-daily-attendance.js';
 import type { UatClientFactory } from '../http/client/uat-client.factory.js';
 import type { CredentialCipher } from '../security/credential-cipher.js';
 
@@ -67,10 +68,16 @@ export class AttendanceUploadWorker {
       const password = this.credentialCipher.decrypt(job.credentialCipher);
       const client = this.clientFactory.create();
       await client.authenticate({ username: job.ownerUsername, password });
+      const week = uatAttendanceWeekRange(job.fechaInicio);
+      const weeklyAttendance = await client.getAsistenciaGrupo({
+        Id_Grupo: job.idGrupo,
+        ...week,
+      });
+      const attendances = expandDailyAttendances(job.attendances, weeklyAttendance);
       const response = await client.guardaAsistencias({
         Id_Grupo: job.idGrupo,
-        Fec_Ini: job.fechaInicio,
-        Asistencia: JSON.stringify(job.attendances),
+        Fec_Ini: week.fec_ini,
+        Asistencia: JSON.stringify(attendances),
       });
       if (response.exito === false) throw new Error(response.mensaje || 'UAT rechazó la lista de asistencia.');
       await this.repository.completeJob(job);

@@ -38,7 +38,7 @@ void main() {
     expect(find.text('2 de 3 detectados'), findsOneWidget);
     expect(find.text('Bruno López'), findsOneWidget);
     expect(find.text('Ana Martínez'), findsOneWidget);
-    expect(find.text('Cancelar escaneo'), findsOneWidget);
+    expect(find.text('Pausar escaneo'), findsOneWidget);
     expect(find.byKey(const ValueKey('detected-student-list')), findsOneWidget);
 
     final brunoCard = find.byKey(const ValueKey('detected-student-1002'));
@@ -103,7 +103,7 @@ void main() {
     expect(find.text('Alumno 1'), findsOneWidget);
   });
 
-  testWidgets('el botón rojo detiene el escaneo antes de cerrar', (
+  testWidgets('el botón de pausa detiene el escaneo antes de cerrar', (
     tester,
   ) async {
     final detectedKeys = ValueNotifier<List<String>>(const []);

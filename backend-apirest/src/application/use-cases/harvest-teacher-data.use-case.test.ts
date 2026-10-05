@@ -53,6 +53,20 @@ describe('HarvestTeacherDataUseCase', () => {
     expect(schedulesRequested).toEqual([12]);
   });
 
+  it('publica todas las horas cuando BuscaHorarios devuelve varias filas para el mismo grupo', async () => {
+    const capture = captureSnapshots();
+    const uatService = makeUatService({
+      getHorariosPorSesion: async () => uatList([
+        { Id_Grupo: 947699, Txt_Espacio_Fisico: 'A1', Txt_Viernes: '12:00-13:00' },
+        { Id_Grupo: 947699, Txt_Espacio_Fisico: 'A1', Txt_Viernes: '13:00-14:00' },
+        { Id_Grupo: 947699, Txt_Espacio_Fisico: 'A1', Txt_Viernes: '14:00-15:00' },
+        { Id_Grupo: 947699, Txt_Espacio_Fisico: 'A1', Txt_Viernes: '15:00-16:00' },
+      ]),
+    });
+    await new HarvestTeacherDataUseCase(uatService, capture.publisher).execute(makeEvent());
+    expect(capture.snapshots[0]?.groups[0]?.schedule.friday).toHaveLength(4);
+  });
+
   it('prefiere el ciclo configurado sobre el ciclo activo del catalogo UAT', async () => {
     const capture = captureSnapshots();
     const cyclesRequested: number[] = [];

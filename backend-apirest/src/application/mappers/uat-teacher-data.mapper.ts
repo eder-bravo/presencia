@@ -18,8 +18,9 @@ export class UatTeacherDataMapper {
     cycleExternalId: string;
     cycleName: string | null;
     educationLevel: string | null;
-    schedule?: UatHorarioItem;
+    schedule?: UatHorarioItem | UatHorarioItem[];
   }): MappedTeacherGroup {
+    const firstSchedule = Array.isArray(input.schedule) ? input.schedule[0] : input.schedule;
     const coordinationExternalId = String(input.des.Id_DES);
     const coordinationName =
       readString(input.des, ['Txt_DES', 'txt_des', 'DES', 'Txt_Nombre', 'Nombre', 'Txt_Nombre_Corto']) ??
@@ -56,9 +57,9 @@ export class UatTeacherDataMapper {
         groupCode: readString(input.raw, ['Txt_Letra', 'Grupo', 'txt_letra']),
         schoolCycleExternalId: input.cycleExternalId,
         schoolCycleName: readString(input.raw, ['Ciclo', 'Txt_Ciclo_Escolar']) ?? input.cycleName,
-        classroom: cleanNullable(input.schedule?.Txt_Espacio_Fisico),
+        classroom: cleanNullable(firstSchedule?.Txt_Espacio_Fisico),
         educationLevel: input.educationLevel,
-        period: input.schedule?.Num_Periodo == null ? null : String(input.schedule.Num_Periodo),
+        period: firstSchedule?.Num_Periodo == null ? null : String(firstSchedule.Num_Periodo),
         schedule: mapWeeklySchedule(input.schedule),
         teacherExternalId: input.teacher.externalId,
         subjectExternalId,
@@ -79,13 +80,22 @@ const UAT_DAY_FIELDS: Array<[ScheduleDay, keyof UatHorarioItem]> = [
   ['sunday', 'Txt_Domingo'],
 ];
 
-export function mapWeeklySchedule(item?: UatHorarioItem): WeeklySchedule {
+export function mapWeeklySchedule(item?: UatHorarioItem | UatHorarioItem[]): WeeklySchedule {
   const result = Object.fromEntries(UAT_DAY_FIELDS.map(([day]) => [day, []])) as unknown as WeeklySchedule;
   if (!item) return result;
+  const items = Array.isArray(item) ? item : [item];
 
   for (const [day, field] of UAT_DAY_FIELDS) {
-    const rawValue = item[field];
-    if (typeof rawValue === 'string' && rawValue.trim()) result[day] = parseScheduleSlots(rawValue);
+    const slots = new Map<string, ScheduleSlot>();
+    for (const row of items) {
+      const rawValue = row[field];
+      if (typeof rawValue !== 'string' || !rawValue.trim()) continue;
+      for (const slot of parseScheduleSlots(rawValue)) {
+        const key = slot.startTime && slot.endTime ? `${slot.startTime}-${slot.endTime}` : slot.raw;
+        if (!slots.has(key)) slots.set(key, slot);
+      }
+    }
+    result[day] = [...slots.values()].sort((left, right) => (left.startTime ?? '~').localeCompare(right.startTime ?? '~'));
   }
   return result;
 }

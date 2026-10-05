@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { AttendanceUploadRepository } from '../../domain/attendance-upload/attendance-upload.repository.js';
 import type { AttendanceUploadRecordInput } from '../../domain/attendance-upload/attendance-upload.types.js';
 
-const UAT_FIRST_DAILY_PASS = 1;
+const DAILY_CAPTURE_MARKER = 1;
 
 export class AttendanceUploadService {
   constructor(private readonly repository: AttendanceUploadRepository) {}
@@ -11,10 +11,11 @@ export class AttendanceUploadService {
     const normalized = [...input.records]
       .map((record) => ({
         ...record,
-        // The Flutter app captures one pass per group/day. UAT's
-        // num_pase_lista is that pass number, not the student's roster number.
+        // Store the Flutter daily snapshot. The worker expands it to passes
+        // 1..N using Num_Pl_<day> from UAT for the actual group/week.
+        // This marker is never the student's roster number.
         attendances: record.attendances
-          .map((attendance) => ({ ...attendance, num_pase_lista: UAT_FIRST_DAILY_PASS }))
+          .map((attendance) => ({ ...attendance, num_pase_lista: DAILY_CAPTURE_MARKER }))
           .sort((a, b) => a.id_alumno - b.id_alumno),
       }))
       .sort((a, b) => a.clientRecordId.localeCompare(b.clientRecordId));
