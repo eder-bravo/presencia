@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,10 @@ import '../../../shared/models/grupo.dart';
 import 'grupo_detail_page.dart';
 
 class UploadManagementPage extends StatefulWidget {
-  const UploadManagementPage({super.key});
+  final ApiService? apiService;
+  final AuthStorageService? authStorage;
+
+  const UploadManagementPage({super.key, this.apiService, this.authStorage});
 
   @override
   State<UploadManagementPage> createState() => _UploadManagementPageState();
@@ -23,10 +27,14 @@ class UploadManagementPage extends StatefulWidget {
 
 class _UploadManagementPageState extends State<UploadManagementPage> {
   final AsistenciaLocalService _asistenciaService = AsistenciaLocalService();
-  final ApiService _apiService = ApiService();
-  final AuthStorageService _authStorage = AuthStorageService();
-  final AttendanceBatchService _attendanceBatchService =
-      AttendanceBatchService();
+  late final ApiService _apiService = widget.apiService ?? ApiService();
+  late final AuthStorageService _authStorage =
+      widget.authStorage ?? AuthStorageService();
+  late final AttendanceBatchService _attendanceBatchService =
+      AttendanceBatchService(
+        apiService: _apiService,
+        localService: _asistenciaService,
+      );
   List<AsistenciaRegistro> _pendientes = [];
   List<AsistenciaRegistro> _sincronizadas = [];
   // Keys (grupoId_date) of records that are currently syncing on the server
@@ -35,6 +43,7 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
   bool _isLoading = true;
   bool _isUploading = false;
   bool _isPolling = false;
+  int _submissionGeneration = 0;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
@@ -74,7 +83,7 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
 
       // Reconciliar con servidor en background (no bloquea la UI)
       if (pendientes.isNotEmpty) {
-        _reconciliarEnBackground(pendientes);
+        _reconciliarEnBackground();
       }
     } catch (e) {
       Logger.error('Error cargando asistencias', e, StackTrace.current);
@@ -84,8 +93,8 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
 
   /// Reconcilia con el servidor sin bloquear la UI.
   /// Si algo cambió, actualiza el estado silenciosamente.
-  void _reconciliarEnBackground(List<AsistenciaRegistro> pendientes) {
-    _reconciliarConServidor(pendientes)
+  void _reconciliarEnBackground() {
+    _reconciliarConServidor()
         .then((_) {
           final pendientesActualizados = _asistenciaService
               .obtenerAsistenciasPendientes();
@@ -118,11 +127,11 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
   /// Check the server for records that were already synced or are syncing
   /// (e.g. app was closed during upload).
   /// Only reconciles completed records if the local data hasn't changed.
-  Future<void> _reconciliarConServidor(
-    List<AsistenciaRegistro> pendientes,
-  ) async {
+  Future<void> _reconciliarConServidor() async {
     final token = _authStorage.getToken();
     if (token == null) return;
+    final generation = _submissionGeneration;
+    final pendientes = _asistenciaService.obtenerAsistenciasPendientes();
 
     final records = pendientes.map((r) {
       final dateStr =
@@ -135,6 +144,11 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
       records: records,
     );
 
+    // Una consulta iniciada antes de un nuevo envío podría confirmar la
+    // revisión anterior. Esperar la consulta que corresponde al nuevo envío.
+    if (_disposed || _isUploading || generation != _submissionGeneration) {
+      return;
+    }
     if (statusMap.isEmpty) return;
 
     final newSyncingOnServer = <String>{};
@@ -145,7 +159,7 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
       final key = '${registro.grupoId}_$dateStr';
       final status = statusMap[key];
 
-      if (status == 'COMPLETED') {
+      if (status == 'COMPLETED' || status == 'SKIPPED') {
         if (await _attendanceBatchService.markCompletedIfUnchanged(
           registro.id,
         )) {
@@ -186,23 +200,21 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
           _SyncStepData(label: '¡Terminado!', status: _StepStatus.pending),
         ];
         // Start polling so the UI clears once jobs finish
-        _pollUntilSyncingClears(pendientes);
+        _pollUntilSyncingClears();
       }
     }
   }
 
   /// Polls the server every 4 seconds while _syncingOnServer is non-empty.
   /// Stops when all jobs finish or the widget is disposed.
-  Future<void> _pollUntilSyncingClears(
-    List<AsistenciaRegistro> pendientes,
-  ) async {
+  Future<void> _pollUntilSyncingClears() async {
     if (_isPolling) return;
     _isPolling = true;
     try {
       while (!_disposed && _syncingOnServer.isNotEmpty && !_isUploading) {
         await Future.delayed(const Duration(seconds: 4));
         if (_disposed || _isUploading) break;
-        await _reconciliarConServidor(pendientes);
+        await _reconciliarConServidor();
       }
 
       // Once clear: reload fresh data so synced records move off the pending list
@@ -255,7 +267,10 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
     final grupos = _authStorage.getGrupos() ?? [];
     if (token == null) return;
 
-    setState(() => _isUploading = true);
+    setState(() {
+      _isUploading = true;
+      _submissionGeneration++;
+    });
     HapticFeedback.mediumImpact();
     _stepsNotifier.value = [
       _SyncStepData(
@@ -278,38 +293,45 @@ class _UploadManagementPageState extends State<UploadManagementPage> {
       subtitle:
           '${_pendientes.length} lista${_pendientes.length == 1 ? '' : 's'} por enviar',
     );
-    final directResult = await _attendanceBatchService.submitDirectToBackend(
-      token: token,
-      records: List<AsistenciaRegistro>.from(_pendientes),
-      groups: grupos,
-    );
-    _updateStep(
-      1,
-      directResult.failed > 0 ? _StepStatus.failed : _StepStatus.completed,
-      subtitle:
-          '${directResult.accepted} aceptada${directResult.accepted == 1 ? '' : 's'}, '
-          '${directResult.skipped} omitida${directResult.skipped == 1 ? '' : 's'}, '
-          '${directResult.failed} fallida${directResult.failed == 1 ? '' : 's'}',
-    );
-    _updateStep(
-      2,
-      directResult.failed > 0 ? _StepStatus.failed : _StepStatus.pending,
-      subtitle: directResult.failed > 0
-          ? null
-          : 'Las listas se guardarán en unos momentos.',
-    );
-    _updateStep(
-      3,
-      directResult.failed > 0 ? _StepStatus.failed : _StepStatus.pending,
-      subtitle: directResult.failed > 0
-          ? 'Las listas fallidas permanecen pendientes.'
-          : 'Las asistencias se marcarán como enviadas al finalizar.',
-    );
-    HapticFeedback.heavyImpact();
-
-    if (!_disposed) {
-      await _cargarAsistencias();
-      if (mounted) setState(() => _isUploading = false);
+    try {
+      final directResult = await _attendanceBatchService.submitDirectToBackend(
+        token: token,
+        records: List<AsistenciaRegistro>.from(_pendientes),
+        groups: grupos,
+      );
+      _updateStep(
+        1,
+        directResult.failed > 0 ? _StepStatus.failed : _StepStatus.completed,
+        subtitle:
+            '${directResult.accepted} aceptada${directResult.accepted == 1 ? '' : 's'}, '
+            '${directResult.skipped} omitida${directResult.skipped == 1 ? '' : 's'}, '
+            '${directResult.failed} fallida${directResult.failed == 1 ? '' : 's'}',
+      );
+      _updateStep(
+        2,
+        directResult.failed > 0 ? _StepStatus.failed : _StepStatus.pending,
+        subtitle: directResult.failed > 0
+            ? null
+            : 'Las listas se guardarán en unos momentos.',
+      );
+      _updateStep(
+        3,
+        directResult.failed > 0 ? _StepStatus.failed : _StepStatus.pending,
+        subtitle: directResult.failed > 0
+            ? 'Las listas fallidas permanecen pendientes.'
+            : 'Las asistencias se marcarán como enviadas al finalizar.',
+      );
+      HapticFeedback.heavyImpact();
+    } catch (e, stackTrace) {
+      Logger.error('Error enviando asistencias', e, stackTrace);
+      _updateStep(1, _StepStatus.failed, subtitle: 'Intenta enviar de nuevo.');
+    } finally {
+      if (!_disposed && mounted) {
+        // La reconciliación debe poder iniciar el polling, incluso si la
+        // primera respuesta de estado llega inmediatamente.
+        setState(() => _isUploading = false);
+        await _cargarAsistencias();
+      }
     }
   }
 
@@ -1357,6 +1379,7 @@ class _PendingDetailsModal extends StatefulWidget {
 
 class _PendingDetailsModalState extends State<_PendingDetailsModal> {
   late List<AsistenciaRegistro> _localPendientes;
+  StreamSubscription<void>? _attendanceSubscription;
 
   // Gradientes (igual que en grupos_page)
   static const List<List<Color>> _cardGradients = [
@@ -1372,6 +1395,20 @@ class _PendingDetailsModalState extends State<_PendingDetailsModal> {
   void initState() {
     super.initState();
     _localPendientes = List.from(widget.pendientes);
+    _attendanceSubscription = AsistenciaLocalService().cambios.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        _localPendientes =
+            AsistenciaLocalService().obtenerAsistenciasPendientes()
+              ..sort((a, b) => b.fecha.compareTo(a.fecha));
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _attendanceSubscription?.cancel();
+    super.dispose();
   }
 
   /// Obtener colores del gradiente para un grupo específico
@@ -1475,7 +1512,7 @@ class _PendingDetailsModalState extends State<_PendingDetailsModal> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
-              '${widget.pendientes.length} registro${widget.pendientes.length == 1 ? '' : 's'}',
+              '${_localPendientes.length} registro${_localPendientes.length == 1 ? '' : 's'}',
               style: TextStyle(color: palette.textSecondary, fontSize: 14),
             ),
           ),

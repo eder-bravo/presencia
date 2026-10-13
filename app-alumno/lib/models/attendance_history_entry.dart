@@ -13,6 +13,31 @@ class AttendanceHistoryEntry {
     this.classroom,
   });
 
+  bool isSameDailyAttendanceAs(AttendanceHistoryEntry other) {
+    final day = recordedAt.toLocal();
+    final otherDay = other.recordedAt.toLocal();
+    if (day.year != otherDay.year ||
+        day.month != otherDay.month ||
+        day.day != otherDay.day) {
+      return false;
+    }
+
+    final id = _normalizedClassContext(classId);
+    final otherId = _normalizedClassContext(other.classId);
+    if (id.isNotEmpty && otherId.isNotEmpty) return id == otherId;
+
+    // Student GATT confirmations may only contain the subject and day.
+    final name = _normalizedClassContext(className);
+    final otherName = _normalizedClassContext(other.className);
+    if (name.isEmpty || name != otherName) return false;
+
+    final groupName = _normalizedClassContext(group);
+    final otherGroupName = _normalizedClassContext(other.group);
+    return groupName.isEmpty ||
+        otherGroupName.isEmpty ||
+        groupName == otherGroupName;
+  }
+
   Map<String, String> toStorage() => {
     'recordedAt': recordedAt.toIso8601String(),
     'classId': ?classId,
@@ -36,6 +61,9 @@ class AttendanceHistoryEntry {
     );
   }
 }
+
+String _normalizedClassContext(String? value) =>
+    (value ?? '').trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
 String? _readOptionalString(Object? value) {
   final text = value?.toString().trim();

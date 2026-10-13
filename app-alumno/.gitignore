@@ -49,3 +49,7 @@ app.*.map.json
 # Generated frames used to assemble the Google Play permission demo video.
 /videos/foreground-service-demo/frames/
 /videos/foreground-service-demo/slides/
+
+# Intermediate frames for the student attendance and feedback video.
+/videos/asistencia-feedback/frames/
+/videos/asistencia-feedback/timeline.json

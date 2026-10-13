@@ -9,6 +9,7 @@ import '../../../shared/models/grupo.dart';
 import '../../../shared/models/alumno.dart';
 import '../../../shared/models/asistencia_registro.dart';
 import '../../../services/asistencia_local_service.dart';
+import '../../../services/attendance_batch_service.dart';
 import '../../../services/api_service.dart';
 import '../../../services/ble_beacon_verification_service.dart';
 import '../../../services/native_altbeacon_channel.dart';
@@ -1725,9 +1726,15 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
     if (!mounted) return;
 
     final token = _authStorage.getToken();
+    final registroEnviado = _asistenciaService
+        .obtenerAsistencia(_registroAsistenciaId())
+        ?.copyWith(asistenciasAlumnos: _snapshotCompletoDeAsistencia());
     final attendances = _buildAttendancesForUpload();
 
-    if (token == null || token.isEmpty || attendances.isEmpty) {
+    if (token == null ||
+        token.isEmpty ||
+        registroEnviado == null ||
+        attendances.isEmpty) {
       if (mounted) {
         _mostrarDialogoErrorSincronizacion();
       }
@@ -1830,9 +1837,10 @@ class _GrupoDetailPageState extends State<GrupoDetailPage>
         }
       },
       (response) async {
-        await _asistenciaService.guardarSnapshotEnviado(
-          _registroAsistenciaId(),
-        );
+        await AttendanceBatchService(
+          apiService: _apiService,
+          localService: _asistenciaService,
+        ).registerAcceptedUpload(registroEnviado, response);
         if (mounted) {
           _mostrarDialogoExito(
             debugUpload: response['skippedApiRestUpload'] == true,

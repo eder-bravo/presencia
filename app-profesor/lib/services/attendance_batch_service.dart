@@ -106,6 +106,9 @@ class AttendanceBatchService {
         continue;
       }
 
+      final enviado = record.copyWith(
+        asistenciasAlumnos: Map<String, bool>.from(record.asistenciasAlumnos),
+      );
       final result = await _apiService.uploadAttendance(
         token: token,
         clientRecordId: record.id,
@@ -115,7 +118,7 @@ class AttendanceBatchService {
             group.groupLetter ?? record.grupoGroupLetter ?? group.group,
         period: group.period ?? record.grupoPeriod ?? '',
         date: record.fecha,
-        attendances: _buildAttendances(record, group),
+        attendances: _buildAttendances(enviado, group),
         groupName: group.name,
         classroom: record.salonUtilizado ?? group.classroom,
         level: group.level,
@@ -126,8 +129,8 @@ class AttendanceBatchService {
         (_) async {
           failed++;
         },
-        (_) async {
-          await _localService.guardarSnapshotEnviado(record.id);
+        (response) async {
+          await registerAcceptedUpload(enviado, response);
           accepted++;
         },
       );
@@ -156,7 +159,10 @@ class AttendanceBatchService {
         continue;
       }
 
-      final attendances = _buildAttendances(record, group);
+      final enviado = record.copyWith(
+        asistenciasAlumnos: Map<String, bool>.from(record.asistenciasAlumnos),
+      );
+      final attendances = _buildAttendances(enviado, group);
       if (attendances.isEmpty) {
         skipped++;
         continue;
@@ -182,8 +188,8 @@ class AttendanceBatchService {
         (_) async {
           failed++;
         },
-        (_) async {
-          await _localService.guardarSnapshotEnviado(record.id);
+        (response) async {
+          await registerAcceptedUpload(enviado, response);
           accepted++;
         },
       );
@@ -196,25 +202,29 @@ class AttendanceBatchService {
     );
   }
 
+  /// Algunas capturas ya están completas o no requieren publicación externa
+  /// (clases compartidas / revisión). En esos casos no habrá un job que consultar.
+  Future<void> registerAcceptedUpload(
+    AsistenciaRegistro record,
+    Map<String, dynamic> response,
+  ) async {
+    await _localService.guardarSnapshotEnviado(
+      record.id,
+      asistenciasEnviadas: record.asistenciasAlumnos,
+    );
+    final data = response['data'];
+    final status = data is Map ? data['uploadStatus'] : null;
+    if (status == 'COMPLETED' ||
+        status == 'SKIPPED' ||
+        response['skippedApiRestUpload'] == true) {
+      await markCompletedIfUnchanged(record.id);
+    }
+  }
+
   /// Completes the local record only when it still matches the snapshot that
   /// was accepted by the server. Later edits remain pending as a new revision.
   Future<bool> markCompletedIfUnchanged(String clientRecordId) async {
-    final matches = _localService.obtenerAsistenciasPendientes().where(
-      (record) => record.id == clientRecordId,
-    );
-    if (matches.isEmpty) return true;
-
-    final record = matches.first;
-    final snapshot = record.asistenciasSincronizadas;
-    if (snapshot != null) {
-      if (snapshot.length != record.asistenciasAlumnos.length) return false;
-      for (final entry in record.asistenciasAlumnos.entries) {
-        if (snapshot[entry.key] != entry.value) return false;
-      }
-    }
-
-    await _localService.marcarComoSincronizada(clientRecordId);
-    return true;
+    return _localService.marcarComoSincronizada(clientRecordId);
   }
 
   Grupo? _resolveGroup(AsistenciaRegistro record, List<Grupo> groups) {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -683,14 +682,6 @@ class _AttendancePageState extends State<_AttendancePage> {
         registeredCount < classes.length;
 
     final textScaler = MediaQuery.textScalerOf(context);
-    final buttonHeight = (textScaler.scale(14) * 1.5 + 28).clamp(
-      54.0,
-      double.infinity,
-    );
-    final actionClearance =
-        buttonHeight +
-        48 +
-        (selected == null ? 0 : textScaler.scale(11) * 1.5 + 4);
     final anchorIndex = items.isEmpty
         ? 0
         : _anchorIndex.clamp(0, items.length - 1);
@@ -705,19 +696,24 @@ class _AttendancePageState extends State<_AttendancePage> {
         onTap: () => _selectClass(index),
       ),
     );
-    return Stack(
+    return Column(
       children: [
-        Positioned.fill(
+        Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
               return Column(
                 children: [
                   ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxHeight: constraints.maxHeight * .44,
+                      maxHeight:
+                          constraints.maxHeight *
+                          (constraints.maxWidth < 360 &&
+                                  textScaler.scale(14) > 17
+                              ? .38
+                              : .5),
                     ),
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -759,36 +755,50 @@ class _AttendancePageState extends State<_AttendancePage> {
                               className: widget.confirmedClassName,
                             ),
                           ],
-                          const SizedBox(height: 26),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Tu agenda',
-                                  style: TextStyle(
-                                    color: palette.ink,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -.5,
-                                  ),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: widget.onOpenSchedule,
-                                child: const Text('Ver semana →'),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            'Selecciona una clase para registrar tu asistencia.',
-                            style: TextStyle(
-                              color: palette.muted,
-                              fontSize: 12,
-                              height: 1.5,
-                            ),
-                          ),
                         ],
                       ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Tu agenda',
+                                style: TextStyle(
+                                  color: palette.ink,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -.5,
+                                ),
+                              ),
+                            ),
+                            Flexible(
+                              child: TextButton(
+                                onPressed: widget.onOpenSchedule,
+                                child: const Text(
+                                  'Ver semana →',
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Selecciona una clase para registrar tu asistencia.',
+                          style: TextStyle(
+                            color: palette.muted,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Expanded(
@@ -854,7 +864,7 @@ class _AttendancePageState extends State<_AttendancePage> {
                                         message: widget.errorMessage!,
                                         onRetry: widget.onRefresh,
                                       ),
-                                    SizedBox(height: actionClearance + 24),
+                                    const SizedBox(height: 8),
                                   ],
                                 ),
                               ),
@@ -869,19 +879,14 @@ class _AttendancePageState extends State<_AttendancePage> {
             },
           ),
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: _AttendanceActionBar(
-            occurrence: selected,
-            registered: registered,
-            isFree: isFree,
-            busy: widget.isActive || widget.isChecking,
-            hasError: widget.hasError,
-            loading: widget.scheduleLoading && widget.schedule.isEmpty,
-            onRegister: widget.onRegister,
-          ),
+        _AttendanceActionBar(
+          occurrence: selected,
+          registered: registered,
+          isFree: isFree,
+          busy: widget.isActive || widget.isChecking,
+          hasError: widget.hasError,
+          loading: widget.scheduleLoading && widget.schedule.isEmpty,
+          onRegister: widget.onRegister,
         ),
       ],
     );
@@ -906,10 +911,8 @@ class _AttendanceActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final accent = registered ? palette.success : palette.accent;
+    final onPrimary = Theme.of(context).colorScheme.onPrimary;
     final enabled = !registered && !isFree && !busy && !loading;
-    final radius = BorderRadius.circular(20);
     final buttonTitle = registered
         ? 'Asistencia registrada'
         : isFree
@@ -919,116 +922,65 @@ class _AttendanceActionBar extends StatelessWidget {
         : hasError
         ? 'Intentar de nuevo'
         : 'Registrar asistencia';
-    return Container(
+    return Padding(
       key: const Key('attendance-action-bar'),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            palette.background.withValues(alpha: 0),
-            palette.background.withValues(alpha: .25),
-            palette.background.withValues(alpha: .85),
-          ],
-          stops: const [0, .35, 1],
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: dark ? .2 : .07),
-                  blurRadius: 20,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: radius,
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: radius,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white.withValues(alpha: dark ? .16 : .7),
-                        Colors.white.withValues(alpha: dark ? .06 : .3),
-                        accent.withValues(alpha: enabled ? .13 : .06),
-                      ],
-                      stops: const [0, .52, 1],
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: dark ? .3 : .8),
-                    ),
-                  ),
-                  child: FilledButton.icon(
-                    onPressed: enabled ? onRegister : null,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(54),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 14,
-                      ),
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: palette.ink,
-                      disabledBackgroundColor: Colors.transparent,
-                      disabledForegroundColor: registered
-                          ? palette.success
-                          : palette.muted,
-                      surfaceTintColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: radius),
-                    ),
-                    icon: Icon(
-                      registered
-                          ? Icons.check_circle_outline_rounded
-                          : Icons.check_rounded,
-                      size: 22,
-                    ),
-                    label: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          buttonTitle,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
-                        if (occurrence != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            isFree
-                                ? 'Selecciona una clase'
-                                : subjectDisplayName(occurrence!.entry.subject),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: palette.ink.withValues(alpha: .8),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: enabled ? onRegister : null,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(54),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            backgroundColor: palette.accent,
+            foregroundColor: onPrimary,
+            disabledBackgroundColor: registered
+                ? palette.successSurface
+                : palette.freeSurface,
+            disabledForegroundColor: registered
+                ? palette.success
+                : palette.muted,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
-        ],
+          icon: Icon(
+            registered
+                ? Icons.check_circle_outline_rounded
+                : Icons.check_rounded,
+            size: 22,
+          ),
+          label: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                buttonTitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+              if (occurrence != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  isFree
+                      ? 'Selecciona una clase'
+                      : subjectDisplayName(occurrence!.entry.subject),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    height: 1.5,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

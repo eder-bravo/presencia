@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../shared/models/asistencia_registro.dart';
 import '../core/utils/utils.dart';
@@ -38,7 +39,20 @@ class AsistenciaLocalService {
   // Guardar o actualizar registro de asistencia
   Future<void> guardarAsistencia(AsistenciaRegistro registro) async {
     try {
-      await _safeBox.put(registro.id, registro);
+      final existente = _safeBox.get(registro.id);
+      final sinCambios =
+          existente != null &&
+          mapEquals(existente.asistenciasAlumnos, registro.asistenciasAlumnos);
+      final actualizado = registro.copyWith(
+        sincronizado: existente == null
+            ? registro.sincronizado
+            : existente.sincronizado && sinCambios,
+        // Una pantalla abierta puede conservar un snapshot anterior al envío.
+        asistenciasSincronizadas:
+            existente?.asistenciasSincronizadas ??
+            registro.asistenciasSincronizadas,
+      );
+      await _safeBox.put(registro.id, actualizado);
       Logger.info('Asistencia guardada localmente: ${registro.id}');
     } catch (e, stackTrace) {
       Logger.error('Error guardando asistencia', e, stackTrace);
@@ -123,17 +137,20 @@ class AsistenciaLocalService {
     }
   }
 
-  /// Saves a snapshot of the current asistenciasAlumnos WITHOUT marking as synced.
-  /// Called at HTTP-send time so reconciliation can later compare current data
-  /// against what was actually sent to the server.
-  Future<void> guardarSnapshotEnviado(String id) async {
+  /// Notifica también las confirmaciones recibidas mientras un modal está abierto.
+  Stream<void> get cambios => _safeBox.watch().map((_) {});
+
+  /// Guarda exactamente la lista enviada, aunque haya ediciones durante la petición.
+  /// La aceptación HTTP por sí sola no confirma la publicación en UAT.
+  Future<void> guardarSnapshotEnviado(
+    String id, {
+    required Map<String, bool> asistenciasEnviadas,
+  }) async {
     try {
       final registro = _safeBox.get(id);
       if (registro != null) {
         final actualizado = registro.copyWith(
-          asistenciasSincronizadas: Map<String, bool>.from(
-            registro.asistenciasAlumnos,
-          ),
+          asistenciasSincronizadas: Map<String, bool>.from(asistenciasEnviadas),
         );
         await _safeBox.put(id, actualizado);
       }
@@ -143,10 +160,15 @@ class AsistenciaLocalService {
   }
 
   // Marcar asistencia como sincronizada
-  Future<void> marcarComoSincronizada(String id) async {
+  Future<bool> marcarComoSincronizada(String id) async {
     try {
       final registro = _safeBox.get(id);
       if (registro != null) {
+        final snapshot = registro.asistenciasSincronizadas;
+        if (snapshot == null ||
+            !mapEquals(snapshot, registro.asistenciasAlumnos)) {
+          return false;
+        }
         final actualizado = registro.copyWith(
           sincronizado: true,
           fechaActualizacion: DateTime.now(),
@@ -157,12 +179,14 @@ class AsistenciaLocalService {
         await _safeBox.put(id, actualizado);
         Logger.info('Asistencia marcada como sincronizada: $id');
       }
+      return true;
     } catch (e, stackTrace) {
       Logger.error(
         'Error marcando asistencia como sincronizada',
         e,
         stackTrace,
       );
+      return false;
     }
   }
 

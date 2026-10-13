@@ -50,6 +50,7 @@ class LocalStorageService {
   );
 
   late Box _profile;
+  Future<void> _attendanceHistoryWrite = Future<void>.value();
 
   Future<void> init() async {
     await Hive.initFlutter();
@@ -149,9 +150,16 @@ class LocalStorageService {
             .map(AttendanceHistoryEntry.fromStorage)
             .whereType<AttendanceHistoryEntry>()
             .toList()
-          ..sort((left, right) => right.recordedAt.compareTo(left.recordedAt));
+          ..sort((left, right) => left.recordedAt.compareTo(right.recordedAt));
 
-    return entries;
+    // Keep the first confirmation, including duplicates from older builds.
+    final uniqueEntries = <AttendanceHistoryEntry>[];
+    for (final entry in entries) {
+      if (!uniqueEntries.any(entry.isSameDailyAttendanceAs)) {
+        uniqueEntries.add(entry);
+      }
+    }
+    return uniqueEntries.reversed.toList(growable: false);
   }
 
   int get attendanceHistoryCount => attendanceHistory.length;
@@ -162,26 +170,34 @@ class LocalStorageService {
     String? className,
     String? group,
     String? classroom,
-  }) async {
-    final entries = attendanceHistory.toList()
-      ..insert(
-        0,
-        AttendanceHistoryEntry(
-          recordedAt: recordedAt,
-          classId: classId,
-          className: className,
-          group: group,
-          classroom: classroom,
-        ),
-      );
-
-    await _profile.put(
-      _attendanceHistoryKey,
-      entries
-          .take(_maxAttendanceHistoryEntries)
-          .map((entry) => entry.toStorage())
-          .toList(growable: false),
+  }) {
+    final entry = AttendanceHistoryEntry(
+      recordedAt: recordedAt,
+      classId: classId,
+      className: className,
+      group: group,
+      classroom: classroom,
     );
+    // Serialize confirmations so repeated BLE callbacks cannot race a write.
+    final write = _attendanceHistoryWrite.then((_) async {
+      final entries = attendanceHistory.toList();
+      if (entries.any(entry.isSameDailyAttendanceAs)) return;
+
+      entries.add(entry);
+      entries.sort(
+        (left, right) => right.recordedAt.compareTo(left.recordedAt),
+      );
+      await _profile.put(
+        _attendanceHistoryKey,
+        entries
+            .take(_maxAttendanceHistoryEntries)
+            .map((entry) => entry.toStorage())
+            .toList(growable: false),
+      );
+    });
+    // Report a failed write to its caller without blocking later attempts.
+    _attendanceHistoryWrite = write.catchError((Object _) {});
+    return write;
   }
 
   Future<void> ensureDeviceBinding() async {

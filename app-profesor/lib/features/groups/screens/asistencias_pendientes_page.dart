@@ -6,6 +6,7 @@ import '../../../shared/models/asistencia_registro.dart';
 import '../../../shared/models/grupo.dart';
 import '../../../core/theme/uat_colors.dart';
 import '../../../services/asistencia_local_service.dart';
+import '../../../services/attendance_batch_service.dart';
 import '../../../services/api_service.dart';
 import '../../../services/auth_storage_service.dart';
 import '../../authentication/providers/profesor_auth_provider.dart';
@@ -270,7 +271,12 @@ class _AsistenciasPendientesPageState
       grupo,
     );
 
-    final attendances = _buildAttendances(registroActualizado, grupo);
+    final registroEnviado = registroActualizado.copyWith(
+      asistenciasAlumnos: Map<String, bool>.from(
+        registroActualizado.asistenciasAlumnos,
+      ),
+    );
+    final attendances = _buildAttendances(registroEnviado, grupo);
     if (attendances.isEmpty) {
       // No hay alumnos mapeados — probablemente IDs no coinciden.
       // NO marcar como sincronizada: no se subio nada realmente.
@@ -317,7 +323,10 @@ class _AsistenciasPendientesPageState
         return false;
       },
       (response) async {
-        await _asistenciaService.guardarSnapshotEnviado(registroActualizado.id);
+        await AttendanceBatchService(
+          apiService: _apiService,
+          localService: _asistenciaService,
+        ).registerAcceptedUpload(registroEnviado, response);
         if (showSnackbars && mounted) {
           final isDebugUpload = response['skippedApiRestUpload'] == true;
           final message = isDebugUpload
